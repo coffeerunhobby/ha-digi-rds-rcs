@@ -96,9 +96,9 @@ def test_build_snapshot():
 
     snapshot = coord._build_snapshot(_make_digi_data())
 
-    assert snapshot["account_label"] == "Digi account"
     # One row per address (services are aggregated within the address).
     assert len(snapshot["addresses"]) == 1
+    assert "totals" not in snapshot
 
     addr = snapshot["addresses"][0]
     assert addr["address"] == "Strada Exemplu 10"
@@ -112,13 +112,6 @@ def test_build_snapshot():
     assert addr["rest"] == 120.0
     assert addr["has_arrears"] is True
     assert addr["unpaid_count"] == 1
-
-    totals = snapshot["totals"]
-    assert totals["sold"] == 120.0
-    assert totals["has_arrears"] is True
-    assert totals["scadenta"] == "2026-07-30"
-    assert totals["addresses_count"] == 1
-    assert totals["numar_servicii"] == 2
 
 
 def test_build_snapshot_no_arrears_when_all_paid():
@@ -135,5 +128,3 @@ def test_build_snapshot_no_arrears_when_all_paid():
     addr = snapshot["addresses"][0]
     assert addr["rest"] == 0.0
     assert addr["has_arrears"] is False
-    assert snapshot["totals"]["has_arrears"] is False
-    assert snapshot["totals"]["scadenta"] is None

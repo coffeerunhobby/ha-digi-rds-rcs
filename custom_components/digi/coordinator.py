@@ -23,7 +23,6 @@ from .const import (
     CONF_COOKIES,
     CONF_HISTORY_LIMIT,
     CONF_SELECTED_ACCOUNT_ID,
-    CONF_SELECTED_ACCOUNT_LABEL,
     CONF_UPDATE_INTERVAL,
     DEFAULT_HISTORY_LIMIT,
     DEFAULT_UPDATE_INTERVAL_HOURS,
@@ -202,28 +201,14 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             or digi_data.account_id
             or "digi"
         )
-        account_label = (
-            self.config_entry.data.get(CONF_SELECTED_ACCOUNT_LABEL)
-            or digi_data.account_label
-            or "Digi account"
-        )
 
         address_rows: list[dict[str, Any]] = []
-        total_sold = 0.0
-        total_ultima_factura = 0.0
-        total_services = 0
-        has_arrears = False
-        arrears_due_dates: list[date] = []
-        latest_global: dict[str, Any] | None = None
-        latest_global_date: date | None = None
-        address_keys: set[str] = set()
 
         # One row per address — invoices are aggregated across the services
         # billed at that address (Digi already groups invoices by address).
         for address_key, entry in digi_data.invoices_by_address.items():
             address = entry.address or address_key
-            address_id = _address_hash(address)
-            address_keys.add(address_key or address_id)
+            address_unique = _address_hash(address)
 
             items = [item for item in (entry.history or []) if item]
             if not items and entry.latest:
@@ -236,7 +221,6 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 reverse=True,
             )
             latest = items[0]
-            address_unique = address_id
 
             unpaid = [
                 item
@@ -252,7 +236,6 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 2,
             )
             amount = round(float(latest.get("amount") or 0.0), 2)
-            issue_date = _parse_date(latest.get("issue_date"))
 
             latest_services = latest.get("services") or []
             if isinstance(latest_services, list) and latest_services:
@@ -267,24 +250,6 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if label not in service_labels:
                     service_labels.append(label)
             service_label = ", ".join(service_labels[:3]) if service_labels else "Digi"
-
-            total_sold += max(rest, 0.0)
-            total_ultima_factura += amount
-            total_services += services_count
-            has_arrears = has_arrears or rest > 0
-
-            for item in unpaid:
-                due = _parse_date(item.get("due_date"))
-                if due:
-                    arrears_due_dates.append(due)
-
-            if issue_date and (
-                latest_global_date is None or issue_date > latest_global_date
-            ):
-                latest_global_date = issue_date
-                latest_global = latest
-            elif latest_global is None:
-                latest_global = latest
 
             address_rows.append(
                 {
@@ -309,28 +274,9 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
             )
 
-        next_due = min(arrears_due_dates).isoformat() if arrears_due_dates else None
-        latest_invoice_id = None
-        latest_invoice_value = round(total_ultima_factura, 2)
-        if latest_global:
-            latest_invoice_id = latest_global.get("invoice_number") or latest_global.get(
-                "invoice_id"
-            )
-            latest_invoice_value = round(float(latest_global.get("amount") or 0.0), 2)
-
         return {
             "account_id": str(account_id),
-            "account_label": account_label,
             "addresses": address_rows,
-            "totals": {
-                "sold": round(total_sold, 2),
-                "ultima_factura": latest_invoice_value,
-                "id_ultima_factura": latest_invoice_id,
-                "scadenta": next_due,
-                "has_arrears": has_arrears,
-                "numar_servicii": total_services,
-                "addresses_count": len(address_keys),
-            },
             "needs_reauth": digi_data.needs_reauth,
             "last_update": digi_data.last_update.isoformat()
             if digi_data.last_update
