@@ -71,8 +71,8 @@ def _invoice_attributes(address: dict[str, Any]) -> dict[str, Any]:
 
 ADDRESS_SENSORS: tuple[DigiAddressDescription, ...] = (
     DigiAddressDescription(
-        key="de_plata",
-        translation_key="de_plata",
+        key="amount_due",
+        translation_key="amount_due",
         icon="mdi:cash-multiple",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_RON,
@@ -80,28 +80,28 @@ ADDRESS_SENSORS: tuple[DigiAddressDescription, ...] = (
         with_attributes=True,
     ),
     DigiAddressDescription(
-        key="ultima_factura",
-        translation_key="ultima_factura",
+        key="last_invoice",
+        translation_key="last_invoice",
         icon="mdi:file-document-outline",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_RON,
         value_fn=lambda a: a.get("amount"),
     ),
     DigiAddressDescription(
-        key="scadenta",
-        translation_key="scadenta",
+        key="due_date",
+        translation_key="due_date",
         icon="mdi:calendar-clock",
         value_fn=lambda a: a.get("due_date"),
     ),
     DigiAddressDescription(
-        key="restanta",
-        translation_key="restanta",
+        key="overdue",
+        translation_key="overdue",
         icon="mdi:alert-circle-outline",
         value_fn=lambda a: "yes" if a.get("has_arrears") else "no",
     ),
     DigiAddressDescription(
-        key="numar_servicii",
-        translation_key="numar_servicii",
+        key="number_of_services",
+        translation_key="number_of_services",
         icon="mdi:counter",
         value_fn=lambda a: a.get("services_count"),
     ),

@@ -58,15 +58,15 @@ def test_address_is_one_device_with_all_sensors():
 
 
 def test_entity_id_uses_hash_not_address():
-    sensor = _sensor("entry_one", "de_plata")
+    sensor = _sensor("entry_one", "amount_due")
     assert "strada" not in sensor.entity_id.lower()
-    assert sensor.entity_id == f"sensor.digi_entry_on_{HASH}_de_plata"
-    assert sensor.unique_id == f"entry_one_{HASH}_de_plata"
+    assert sensor.entity_id == f"sensor.digi_entry_on_{HASH}_amount_due"
+    assert sensor.unique_id == f"entry_one_{HASH}_amount_due"
 
 
 def test_ids_are_scoped_per_entry():
-    a1 = _sensor("entry_one", "de_plata")
-    a2 = _sensor("entry_two", "de_plata")
+    a1 = _sensor("entry_one", "amount_due")
+    a2 = _sensor("entry_two", "amount_due")
     assert a1.unique_id != a2.unique_id
     d1 = next(iter(a1.device_info["identifiers"]))
     d2 = next(iter(a2.device_info["identifiers"]))
@@ -74,13 +74,13 @@ def test_ids_are_scoped_per_entry():
 
 
 def test_sensor_values_and_attributes():
-    assert _sensor("entry_one", "de_plata").native_value == 12.0
-    assert _sensor("entry_one", "ultima_factura").native_value == 30.0
-    assert _sensor("entry_one", "scadenta").native_value == "30-06-2026"
-    assert _sensor("entry_one", "restanta").native_value == "yes"
-    assert _sensor("entry_one", "numar_servicii").native_value == 2
+    assert _sensor("entry_one", "amount_due").native_value == 12.0
+    assert _sensor("entry_one", "last_invoice").native_value == 30.0
+    assert _sensor("entry_one", "due_date").native_value == "30-06-2026"
+    assert _sensor("entry_one", "overdue").native_value == "yes"
+    assert _sensor("entry_one", "number_of_services").native_value == 2
 
     # Only the amount-due sensor carries the rich attributes.
-    attrs = _sensor("entry_one", "de_plata").extra_state_attributes
+    attrs = _sensor("entry_one", "amount_due").extra_state_attributes
     assert attrs["address"] == "Strada A"
-    assert _sensor("entry_one", "scadenta").extra_state_attributes is None
+    assert _sensor("entry_one", "due_date").extra_state_attributes is None
