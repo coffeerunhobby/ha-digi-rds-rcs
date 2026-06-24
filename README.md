@@ -63,13 +63,15 @@ Assistant.
    și numărul de facturi citite per adresă.
 4. Dacă este activă autentificarea în doi pași, alege metoda (SMS sau e-mail) și
    introdu codul primit.
-5. Selectează adresa dorită dacă ai mai multe locații asociate contului.
+
+**Toate adresele** asociate contului sunt descoperite automat și apar ca
+dispozitive separate — nu trebuie să le adaugi manual.
 
 Intervalul de actualizare și numărul de facturi citite pot fi modificate
 ulterior din **Configure** (⚙️), fără a reinstala integrarea.
 
-> Pentru mai multe conturi Digi, adaugă integrarea de mai multe ori — fiecare
-> cont primește propria sesiune și propriile dispozitive.
+> Pentru un alt cont Digi, folosește **Add service** și autentifică-te cu
+> celălalt e-mail — fiecare cont primește propria sesiune și propriile adrese.
 
 ---
 

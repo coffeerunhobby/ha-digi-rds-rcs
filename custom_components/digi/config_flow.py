@@ -169,9 +169,17 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             return await self.async_step_twofa_method()
 
         if "/auth/address-select" in final_url:
+            # Every address on the account appears as a device regardless of the
+            # choice, so just confirm the first one to get past Digi's mandatory
+            # address-select page — no user prompt. Fall back to a manual choice
+            # only if that fails.
             self._address_options = await self._api.get_address_options(html)
-            if self._address_options:
-                return await self.async_step_select_account()
+            target = next((o for o in self._address_options if o.value), None)
+            if target is not None:
+                try:
+                    await self._api.confirm_address(target.value)
+                except DigiAccountSelectionRequired:
+                    return await self.async_step_select_account()
 
         return await self._async_finish()
 
@@ -341,10 +349,9 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _async_finish(self) -> ConfigFlowResult:
         assert self._api is not None
-        selected_id = self._pending.get(CONF_SELECTED_ACCOUNT_ID)
-        unique_id = (
-            f"{self._pending[CONF_USERNAME].lower()}::{selected_id or 'default'}"
-        )
+        # One entry per Digi login; all of its addresses appear as devices.
+        email = self._pending[CONF_USERNAME]
+        unique_id = email.lower()
         data = self._build_entry_data()
 
         # Re-authentication: update the existing entry instead of creating one.
@@ -359,11 +366,7 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
 
         await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
-        # Prefer the address label; fall back to the e-mail so multiple Digi
-        # accounts are distinguishable in the integrations list.
-        label = self._pending.get(CONF_SELECTED_ACCOUNT_LABEL)
-        title = f"Digi — {label or self._pending[CONF_USERNAME]}"
-        return self.async_create_entry(title=title, data=data)
+        return self.async_create_entry(title=f"Digi — {email}", data=data)
 
     # ── Reauth ──────────────────────────────────────────────────────────────
     async def async_step_reauth(

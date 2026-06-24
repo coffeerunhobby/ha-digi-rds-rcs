@@ -80,7 +80,7 @@ async def test_user_flow_success_without_2fa(hass: HomeAssistant) -> None:
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_USERNAME] == "user@example.com"
     assert result["data"]["cookies"] == _COOKIES
-    assert result["result"].unique_id == "user@example.com::default"
+    assert result["result"].unique_id == "user@example.com"
 
 
 async def test_user_flow_invalid_auth(hass: HomeAssistant) -> None:
@@ -151,7 +151,7 @@ async def test_second_distinct_account_creates_separate_entry(
     existing = MockConfigEntry(
         domain=DOMAIN,
         data={**_USER_INPUT, "cookies": _COOKIES},
-        unique_id="user@example.com::default",
+        unique_id="user@example.com",
     )
     existing.add_to_hass(hass)
 
@@ -168,7 +168,7 @@ async def test_second_distinct_account_creates_separate_entry(
         )
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
-    assert result["result"].unique_id == "other@example.com::default"
+    assert result["result"].unique_id == "other@example.com"
     # Each account keeps its own cookie jar in its own entry.
     assert result["result"].data["cookies"] == _COOKIES
     assert len(hass.config_entries.async_entries(DOMAIN)) == 2
@@ -178,7 +178,7 @@ async def test_duplicate_account_is_rejected(hass: HomeAssistant) -> None:
     existing = MockConfigEntry(
         domain=DOMAIN,
         data={**_USER_INPUT, "cookies": _COOKIES},
-        unique_id="user@example.com::default",
+        unique_id="user@example.com",
     )
     existing.add_to_hass(hass)
 
@@ -201,7 +201,7 @@ async def test_options_flow_updates_settings(hass: HomeAssistant) -> None:
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={**_USER_INPUT, "cookies": _COOKIES},
-        unique_id="user@example.com::default",
+        unique_id="user@example.com",
     )
     entry.add_to_hass(hass)
 
