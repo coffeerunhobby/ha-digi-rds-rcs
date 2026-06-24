@@ -73,32 +73,28 @@ ulterior din **Configure** (⚙️), fără a reinstala integrarea.
 
 ## Entități disponibile
 
-Fiecare cont Digi este un **singur dispozitiv** în Home Assistant. Sub el se
-află senzorii agregați la nivel de cont și **câte un rând pentru fiecare
-adresă**.
+Fiecare cont Digi este o **intrare** (denumită după e-mail), iar fiecare
+**adresă este un dispozitiv** separat (denumit după adresă), cu propriii
+senzori.
 
-### La nivel de cont
-
-| Senzor | Descriere |
-| --- | --- |
-| Total de plată | Suma tuturor soldurilor restante (RON) |
-| Următoarea scadență | Cea mai apropiată scadență neachitată |
-| Are restanță | `yes` / `no` |
-| Număr servicii active | Numărul serviciilor facturate |
-
-### Per adresă (un rând per adresă)
+### Per adresă (dispozitiv)
 
 | Senzor | Descriere |
 | --- | --- |
-| *(numele adresei)* | Suma de plată pentru adresa respectivă (RON) |
+| Amount due | Suma de plată pentru adresa respectivă (RON) |
+| Last invoice | Valoarea celei mai recente facturi (RON) |
+| Due date | Scadența ultimei facturi |
+| Overdue | `yes` / `no` — dacă există sold neachitat |
+| Number of services | Numărul serviciilor facturate |
 
-Senzorul fiecărei adrese include atribute detaliate: serviciile facturate,
+Senzorul *Amount due* include atribute detaliate: serviciile facturate,
 numărul facturii, datele de emitere și scadență, statusul, valoarea facturii,
 linkul către PDF, defalcarea pe servicii și istoricul complet al facturilor.
 
-> ℹ️ Numele și stările entităților sunt în limba engleză (de exemplu `yes` /
-> `no`), pentru consistență indiferent de limba aleasă în Home Assistant.
-> Dialogurile de configurare sunt traduse în română.
+> ℹ️ ID-ul fiecărei entități folosește un hash (md5) al adresei, nu textul
+> adresei — astfel adresa nu apare în `entity_id`. Adresa rămâne ca nume al
+> dispozitivului și ca atribut. Numele și stările entităților sunt în engleză;
+> dialogurile de configurare sunt în română.
 
 ---
 
