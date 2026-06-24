@@ -24,6 +24,8 @@ Assistant.
 - Suport pentru autentificare în doi pași (SMS sau e-mail).
 - Suport pentru conturi cu mai multe adrese.
 - Suport pentru mai multe conturi Digi, fiecare cu propria sesiune (cookie).
+- Conturile sunt actualizate **pe rând** (round-robin), nu simultan — câte o
+  reîmprospătare la fiecare interval, ciclând prin conturi.
 - Dispozitive separate pentru fiecare adresă și serviciu monitorizat.
 - Senzori pentru: suma de plată, valoarea ultimei facturi, data scadenței și
   existența restanțelor.
@@ -175,7 +177,9 @@ entities:
 3. **Istoric configurabil** — implicit sunt citite ultimele 6 facturi per
    adresă (între 1 și 24).
 4. **Un cont per autentificare** — pentru mai multe conturi Digi, adaugă
-   integrarea de mai multe ori; fiecare păstrează propria sesiune.
+   integrarea de mai multe ori; fiecare păstrează propria sesiune. Conturile se
+   actualizează pe rând (round-robin), deci fiecare cont este reîmprospătat la
+   fiecare (număr de conturi × interval).
 
 ---
 

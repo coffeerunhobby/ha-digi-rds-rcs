@@ -29,6 +29,7 @@ from .const import (
     DEFAULT_UPDATE_INTERVAL_HOURS,
     DOMAIN,
 )
+from .scheduler import DATA_SCHEDULER
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -109,13 +110,17 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS
             )
         )
+        # update_interval is None: refreshes are driven by the domain-level
+        # round-robin scheduler (see scheduler.py), not by self-polling, so the
+        # accounts are updated serially and spaced out.
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(hours=interval_hours),
+            update_interval=None,
             config_entry=config_entry,
         )
+        self.interval_seconds = interval_hours * 3600
         self._history_limit = int(
             config_entry.data.get(CONF_HISTORY_LIMIT, DEFAULT_HISTORY_LIMIT)
         )
@@ -162,6 +167,15 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await super().async_shutdown()
 
     async def _async_update_data(self) -> dict[str, Any]:
+        # Serialize fetches across all accounts via the shared scheduler lock,
+        # so two Digi accounts never hit the site at the same moment.
+        scheduler = (self.hass.data.get(DOMAIN) or {}).get(DATA_SCHEDULER)
+        if scheduler is not None:
+            async with scheduler.lock:
+                return await self._fetch_and_build()
+        return await self._fetch_and_build()
+
+    async def _fetch_and_build(self) -> dict[str, Any]:
         api = self._ensure_api()
 
         cookies = self.config_entry.data.get(CONF_COOKIES) or []
