@@ -38,6 +38,8 @@ from .const import (
     CONF_2FA_CODE,
     CONF_2FA_METHOD,
     CONF_2FA_TARGET,
+    CONF_ADDRESS_MAP,
+    CONF_CLIENT_CODE,
     CONF_COOKIES,
     CONF_HISTORY_LIMIT,
     CONF_PASSWORD,
@@ -174,6 +176,11 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             # address-select page — no user prompt. Fall back to a manual choice
             # only if that fails.
             self._address_options = await self._api.get_address_options(html)
+            # Keep the numeric address-id → label map; used to build stable,
+            # Digi-native entity ids (the invoices page only exposes the text).
+            self._pending[CONF_ADDRESS_MAP] = {
+                o.value: o.label for o in self._address_options if o.value
+            }
             target = next((o for o in self._address_options if o.value), None)
             if target is not None:
                 try:
@@ -340,6 +347,8 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_PASSWORD: self._pending[CONF_PASSWORD],
             CONF_UPDATE_INTERVAL: self._pending[CONF_UPDATE_INTERVAL],
             CONF_HISTORY_LIMIT: self._pending[CONF_HISTORY_LIMIT],
+            CONF_CLIENT_CODE: self._pending.get(CONF_CLIENT_CODE),
+            CONF_ADDRESS_MAP: self._pending.get(CONF_ADDRESS_MAP) or {},
             CONF_SELECTED_ACCOUNT_ID: self._pending.get(CONF_SELECTED_ACCOUNT_ID),
             CONF_SELECTED_ACCOUNT_LABEL: self._pending.get(
                 CONF_SELECTED_ACCOUNT_LABEL
@@ -352,6 +361,13 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
         # One entry per Digi login; all of its addresses appear as devices.
         email = self._pending[CONF_USERNAME]
         unique_id = email.lower()
+
+        # Read the Digi client code ("Cod client") once; it prefixes entity_ids.
+        try:
+            self._pending[CONF_CLIENT_CODE] = await self._api.async_fetch_client_code()
+        except Exception:  # noqa: BLE001 - best effort, entity_ids fall back
+            _LOGGER.debug("Could not read Digi client code")
+
         data = self._build_entry_data()
 
         # Re-authentication: update the existing entry instead of creating one.

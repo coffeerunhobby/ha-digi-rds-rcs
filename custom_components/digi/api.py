@@ -26,6 +26,7 @@ import aiohttp
 from yarl import URL
 
 from .const import (
+    ACCOUNT_DETAILS_URL,
     ADDRESS_CONFIRM_URL,
     ADDRESS_SELECT_URL,
     BASE_URL,
@@ -117,6 +118,8 @@ RE_LABEL_VALUE_TEXT = re.compile(
     r">\s*Status\s*<.*?>\s*([^<]+)",
     re.I | re.S,
 )
+# Account-details page: "<strong>Cod client: </strong>123456".
+RE_CLIENT_CODE = re.compile(r"Cod\s*client[^0-9]{0,40}(\d{3,})", re.I | re.S)
 
 
 # ── Exceptions ──────────────────────────────────────────────────────────────
@@ -580,6 +583,20 @@ class DigiApiClient:
                     )
             except json.JSONDecodeError:
                 pass
+
+    async def async_fetch_client_code(self) -> str | None:
+        """Read the Digi client code ("Cod client") from the account page."""
+        try:
+            resp = await self._request(
+                "GET", ACCOUNT_DETAILS_URL, allow_redirects=True
+            )
+            html = await self._read_text(resp)
+        except aiohttp.ClientError:
+            return None
+        if resp.status != 200:
+            return None
+        match = RE_CLIENT_CODE.search(unescape(html))
+        return match.group(1) if match else None
 
     # ── Data fetch ──────────────────────────────────────────────────────────
     async def _load_invoice_page(self, attempts: int = 3) -> str:

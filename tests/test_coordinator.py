@@ -10,14 +10,50 @@ import pytest
 
 pytest.importorskip("homeassistant")
 
+from custom_components.digi.const import CONF_ADDRESS_MAP  # noqa: E402
 from custom_components.digi.coordinator import (  # noqa: E402
     DigiCoordinator,
+    _normalize_address,
     _parse_date,
     _services_count,
     _service_label,
     _slugify,
 )
 from custom_components.digi.models import AddressInvoices, DigiData  # noqa: E402
+
+
+# Synthetic data only. The login labels are lowercase with a county suffix; the
+# invoices-page text is title-cased and shorter — mirroring the real format
+# difference the resolver must bridge.
+_ADDRESS_MAP = {
+    "11112222": "Strada Exemplu nr. 10, bl. A1, sc. B, ap. 14, Oras, județul Exemplu",
+    "33334444": "Strada Exemplu nr. 10, bl. A1, sc. B, ap. 19, Oras, județul Exemplu",
+}
+
+
+def test_normalize_address():
+    assert _normalize_address("Strada Exemplu, Nr. 10, Ap. 14") == "stradaexemplunr10ap14"
+    assert _normalize_address("Strada Țării") == "stradatarii"
+
+
+def test_resolve_address_id_matches_numeric_id():
+    coord = DigiCoordinator.__new__(DigiCoordinator)
+    coord.config_entry = SimpleNamespace(data={CONF_ADDRESS_MAP: _ADDRESS_MAP})
+    # Invoice-page text (different formatting) → numeric address-id.
+    assert (
+        coord._resolve_address_id("Strada Exemplu, Nr. 10, Bl. A1, Sc. B, Ap. 14")
+        == "11112222"
+    )
+    assert (
+        coord._resolve_address_id("Strada Exemplu, Nr. 10, Bl. A1, Sc. B, Ap. 19")
+        == "33334444"
+    )
+
+
+def test_resolve_address_id_without_map():
+    coord = DigiCoordinator.__new__(DigiCoordinator)
+    coord.config_entry = SimpleNamespace(data={})
+    assert coord._resolve_address_id("Strada Exemplu, Nr. 10, Ap. 14") is None
 
 
 def test_slugify():

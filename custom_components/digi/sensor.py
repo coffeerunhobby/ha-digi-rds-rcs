@@ -26,7 +26,14 @@ from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTRIBUTION, CURRENCY_RON, DOMAIN, MANUFACTURER, MODEL
+from .const import (
+    ATTRIBUTION,
+    CONF_CLIENT_CODE,
+    CURRENCY_RON,
+    DOMAIN,
+    MANUFACTURER,
+    MODEL,
+)
 from .coordinator import DigiConfigEntry, DigiCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -157,9 +164,12 @@ class DigiAddressSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
         self._address_unique = address_unique
         self._device_id = f"{config_entry.entry_id}_{address_unique}"
         self._attr_unique_id = f"{self._device_id}_{description.key}"
-        # Entity id uses the md5 address hash, never the address text.
+        # Entity id: prefix with the Digi client code ("Cod client") when known,
+        # otherwise the entry id; then the md5 address hash (never the address
+        # text). e.g. sensor.digi_123456_abcdef123456_amount_due
+        prefix = config_entry.data.get(CONF_CLIENT_CODE) or config_entry.entry_id[:8]
         self.entity_id = (
-            f"sensor.{DOMAIN}_{config_entry.entry_id[:8]}_{address_unique}_{description.key}"
+            f"sensor.{DOMAIN}_{prefix}_{address_unique}_{description.key}"
         )
 
     @property

@@ -19,6 +19,8 @@ CONF_2FA_TARGET: Final = "twofa_target"
 CONF_2FA_CODE: Final = "twofa_code"
 CONF_SELECTED_ACCOUNT_ID: Final = "selected_account_id"
 CONF_SELECTED_ACCOUNT_LABEL: Final = "selected_account_label"
+CONF_CLIENT_CODE: Final = "client_code"
+CONF_ADDRESS_MAP: Final = "address_map"
 CONF_HISTORY_LIMIT: Final = "history_limit"
 CONF_UPDATE_INTERVAL: Final = "update_interval"
 
@@ -43,6 +45,7 @@ TWO_FA_VALIDATE_URL: Final = f"{BASE_URL}/api-post-2fa-validate-code"
 ADDRESS_SELECT_URL: Final = f"{BASE_URL}/auth/address-select?redirectTo=%2F"
 ADDRESS_CONFIRM_URL: Final = f"{BASE_URL}/store/address-confirm-existing"
 INVOICES_URL: Final = f"{BASE_URL}/my-account/invoices"
+ACCOUNT_DETAILS_URL: Final = f"{BASE_URL}/my-account/account-details"
 
 USER_AGENT: Final = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

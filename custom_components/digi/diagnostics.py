@@ -8,6 +8,8 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CONF_ADDRESS_MAP,
+    CONF_CLIENT_CODE,
     CONF_COOKIES,
     CONF_PASSWORD,
     CONF_SELECTED_ACCOUNT_ID,
@@ -20,6 +22,8 @@ TO_REDACT_DATA = {
     CONF_USERNAME,
     CONF_PASSWORD,
     CONF_COOKIES,
+    CONF_CLIENT_CODE,
+    CONF_ADDRESS_MAP,
     CONF_SELECTED_ACCOUNT_ID,
     CONF_SELECTED_ACCOUNT_LABEL,
 }

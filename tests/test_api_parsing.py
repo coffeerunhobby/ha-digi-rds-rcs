@@ -47,6 +47,16 @@ def test_clean_text_collapses_whitespace_and_entities():
     assert DigiApiClient._clean_text("  Internet &amp;   TV \n ") == "Internet & TV"
 
 
+def test_client_code_regex():
+    html = (
+        '<p><strong>Nume: </strong>ION POPESCU</p>'
+        '<p><strong>Cod client: </strong>123456</p>'
+    )
+    match = api.RE_CLIENT_CODE.search(html)
+    assert match is not None
+    assert match.group(1) == "123456"
+
+
 async def test_session_pins_browser_user_agent():
     # Digi serves an empty 204 page to non-browser User-Agents. The browser UA
     # must be set at the session level so it is sent regardless of the aiohttp

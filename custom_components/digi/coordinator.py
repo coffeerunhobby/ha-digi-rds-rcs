@@ -20,6 +20,7 @@ from .api import (
     DigiReauthRequired,
 )
 from .const import (
+    CONF_ADDRESS_MAP,
     CONF_COOKIES,
     CONF_HISTORY_LIMIT,
     CONF_SELECTED_ACCOUNT_ID,
@@ -82,6 +83,23 @@ def _address_hash(address: str) -> str:
     to keep collisions negligible.
     """
     return hashlib.md5((address or "").encode("utf-8")).hexdigest()[:12]
+
+
+def _normalize_address(text: str) -> str:
+    """Lowercase, drop diacritics and keep only alphanumerics — for matching the
+    invoices-page address text against the login address labels."""
+    value = (text or "").lower()
+    for src, dst in {
+        "ă": "a",
+        "â": "a",
+        "î": "i",
+        "ș": "s",
+        "ş": "s",
+        "ț": "t",
+        "ţ": "t",
+    }.items():
+        value = value.replace(src, dst)
+    return "".join(ch for ch in value if ch.isalnum())
 
 
 def _services_count(latest: dict[str, Any]) -> int:
@@ -195,6 +213,25 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._persist_cookies()
         return self._build_snapshot(digi_data)
 
+    def _resolve_address_id(self, address: str) -> str | None:
+        """Match an invoices-page address to its Digi numeric address-id.
+
+        The invoices page only carries the address text, while the login page
+        gives a {numeric-id: label} map. The invoice text (e.g. "… Ap. 14") is a
+        normalized substring of the matching label, so a unique containment match
+        yields the real Digi id. Returns None if absent or ambiguous.
+        """
+        address_map = self.config_entry.data.get(CONF_ADDRESS_MAP) or {}
+        norm = _normalize_address(address)
+        if not address_map or not norm:
+            return None
+        matches = [
+            address_id
+            for address_id, label in address_map.items()
+            if norm in _normalize_address(label)
+        ]
+        return matches[0] if len(matches) == 1 else None
+
     def _build_snapshot(self, digi_data: Any) -> dict[str, Any]:
         account_id = (
             self.config_entry.data.get(CONF_SELECTED_ACCOUNT_ID)
@@ -208,7 +245,9 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # billed at that address (Digi already groups invoices by address).
         for address_key, entry in digi_data.invoices_by_address.items():
             address = entry.address or address_key
-            address_unique = _address_hash(address)
+            # Prefer the real Digi numeric address-id; fall back to a hash of the
+            # address text (single-address accounts, or no match).
+            address_unique = self._resolve_address_id(address) or _address_hash(address)
 
             items = [item for item in (entry.history or []) if item]
             if not items and entry.latest:

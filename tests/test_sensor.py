@@ -64,6 +64,16 @@ def test_entity_id_uses_hash_not_address():
     assert sensor.unique_id == f"entry_one_{HASH}_amount_due"
 
 
+def test_entity_id_prefers_client_code():
+    description = next(d for d in ADDRESS_SENSORS if d.key == "amount_due")
+    entry = SimpleNamespace(
+        entry_id="entry_one",
+        data={"username": "user@example.com", "client_code": "123456"},
+    )
+    sensor = DigiAddressSensor(_coordinator(), entry, HASH, description)
+    assert sensor.entity_id == f"sensor.digi_123456_{HASH}_amount_due"
+
+
 def test_ids_are_scoped_per_entry():
     a1 = _sensor("entry_one", "amount_due")
     a2 = _sensor("entry_two", "amount_due")
