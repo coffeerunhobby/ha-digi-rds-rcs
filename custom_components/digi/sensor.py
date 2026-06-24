@@ -1,4 +1,9 @@
-"""Sensor platform for the Digi (RCS & RDS) integration."""
+"""Sensor platform for the Digi (RCS & RDS) integration.
+
+Each config entry (Digi account) is a single Home Assistant device. Under it:
+  - account-wide totals (amount due, next due date, overdue, number of services)
+  - one row per address (state = amount due; details in attributes)
+"""
 
 from __future__ import annotations
 
@@ -19,6 +24,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     ATTRIBUTION,
+    CONF_USERNAME,
     CURRENCY_RON,
     DOMAIN,
     MANUFACTURER,
@@ -29,81 +35,10 @@ from .coordinator import DigiConfigEntry, DigiCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 
-# ── Service (per address+service) sensor descriptions ───────────────────────
-@dataclass(frozen=True, kw_only=True)
-class DigiServiceDescription(SensorEntityDescription):
-    """Describes a sensor bound to a single Digi service account."""
-
-    value_fn: Callable[[dict[str, Any]], Any]
-    attrs_fn: Callable[[dict[str, Any]], dict[str, Any]] | None = None
-
-
-def _service_invoice_attrs(service: dict[str, Any]) -> dict[str, Any]:
-    latest = service.get("latest") or {}
-    history = service.get("history") or []
-    return {
-        "address": service.get("address"),
-        "service": service.get("service_label"),
-        "invoice_number": service.get("invoice_number"),
-        "issue_date": service.get("issue_date"),
-        "due_date": service.get("due_date"),
-        "status": service.get("status"),
-        "invoice_amount": service.get("amount"),
-        "unpaid_invoices": service.get("unpaid_count"),
-        "services_count": service.get("services_count"),
-        "pdf_url": latest.get("pdf_url"),
-        "services": latest.get("services") or [],
-        "history": [
-            {
-                "invoice_number": item.get("invoice_number"),
-                "issue_date": item.get("issue_date"),
-                "due_date": item.get("due_date"),
-                "amount": item.get("amount"),
-                "remaining": item.get("rest"),
-                "status": item.get("status"),
-            }
-            for item in history
-        ],
-    }
-
-
-SERVICE_SENSORS: tuple[DigiServiceDescription, ...] = (
-    DigiServiceDescription(
-        key="de_plata",
-        translation_key="de_plata",
-        icon="mdi:cash-multiple",
-        device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement=CURRENCY_RON,
-        value_fn=lambda s: s.get("rest"),
-        attrs_fn=_service_invoice_attrs,
-    ),
-    DigiServiceDescription(
-        key="ultima_factura",
-        translation_key="ultima_factura",
-        icon="mdi:file-document-outline",
-        device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement=CURRENCY_RON,
-        value_fn=lambda s: s.get("amount"),
-    ),
-    DigiServiceDescription(
-        key="scadenta",
-        translation_key="scadenta",
-        icon="mdi:calendar-clock",
-        value_fn=lambda s: s.get("due_date"),
-    ),
-    DigiServiceDescription(
-        key="restanta",
-        translation_key="restanta",
-        icon="mdi:alert-circle-outline",
-        value_fn=lambda s: "yes" if s.get("has_arrears") else "no",
-    ),
-)
-
-
-# ── Totals (account-wide) sensor descriptions ───────────────────────────────
+# ── Account-wide totals sensors ─────────────────────────────────────────────
 @dataclass(frozen=True, kw_only=True)
 class DigiTotalsDescription(SensorEntityDescription):
-    """Describes a sensor bound to the account-wide totals."""
+    """Describes an account-wide totals sensor."""
 
     value_fn: Callable[[dict[str, Any]], Any]
 
@@ -116,14 +51,6 @@ TOTALS_SENSORS: tuple[DigiTotalsDescription, ...] = (
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_RON,
         value_fn=lambda t: t.get("sold"),
-    ),
-    DigiTotalsDescription(
-        key="total_ultima_factura",
-        translation_key="total_ultima_factura",
-        icon="mdi:file-document-outline",
-        device_class=SensorDeviceClass.MONETARY,
-        native_unit_of_measurement=CURRENCY_RON,
-        value_fn=lambda t: t.get("ultima_factura"),
     ),
     DigiTotalsDescription(
         key="total_scadenta",
@@ -146,12 +73,24 @@ TOTALS_SENSORS: tuple[DigiTotalsDescription, ...] = (
 )
 
 
+def _account_device(config_entry: DigiConfigEntry) -> DeviceInfo:
+    """The single device that represents the Digi account (named by e-mail)."""
+    email = config_entry.data.get(CONF_USERNAME) or "Digi account"
+    return DeviceInfo(
+        identifiers={(DOMAIN, config_entry.entry_id)},
+        name=f"Digi · {email}",
+        manufacturer=MANUFACTURER,
+        model=MODEL,
+        entry_type=DeviceEntryType.SERVICE,
+    )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: DigiConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Digi sensors from a config entry."""
+    """Set up Digi sensors: account totals + one row per address."""
     coordinator = config_entry.runtime_data
     known: set[str] = set()
 
@@ -160,7 +99,6 @@ async def async_setup_entry(
         data = coordinator.data or {}
         entities: list[SensorEntity] = []
 
-        # Account-wide totals device (added once).
         if "totals" not in known:
             known.add("totals")
             entities.extend(
@@ -168,15 +106,13 @@ async def async_setup_entry(
                 for description in TOTALS_SENSORS
             )
 
-        # One device per discovered service account.
-        for service in data.get("services", []):
-            account_unique = service.get("account_unique")
-            if not account_unique or account_unique in known:
+        for address in data.get("addresses", []):
+            address_unique = address.get("address_unique")
+            if not address_unique or address_unique in known:
                 continue
-            known.add(account_unique)
-            entities.extend(
-                DigiServiceSensor(coordinator, config_entry, account_unique, description)
-                for description in SERVICE_SENSORS
+            known.add(address_unique)
+            entities.append(
+                DigiAddressSensor(coordinator, config_entry, address_unique)
             )
 
         if entities:
@@ -186,70 +122,8 @@ async def async_setup_entry(
     config_entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
 
 
-class DigiServiceSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
-    """A sensor for a single Digi service account (address + service)."""
-
-    _attr_has_entity_name = True
-    _attr_attribution = ATTRIBUTION
-    entity_description: DigiServiceDescription
-
-    def __init__(
-        self,
-        coordinator: DigiCoordinator,
-        config_entry: DigiConfigEntry,
-        account_unique: str,
-        description: DigiServiceDescription,
-    ) -> None:
-        super().__init__(coordinator)
-        self.entity_description = description
-        self._account_unique = account_unique
-        # Scope the device/entity ids to the config entry so two Digi accounts
-        # that share an address or service name cannot collide in the registry.
-        self._device_id = f"{config_entry.entry_id}_{account_unique}"
-        self._attr_unique_id = f"{self._device_id}_{description.key}"
-
-    @property
-    def _service(self) -> dict[str, Any] | None:
-        for service in (self.coordinator.data or {}).get("services", []):
-            if service.get("account_unique") == self._account_unique:
-                return service
-        return None
-
-    @property
-    def available(self) -> bool:
-        return super().available and self._service is not None
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        service = self._service or {}
-        address = service.get("address") or "Digi"
-        label = service.get("service_label") or "Services"
-        name = f"Digi · {address} · {label}".strip(" ·")
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._device_id)},
-            name=name,
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            entry_type=DeviceEntryType.SERVICE,
-        )
-
-    @property
-    def native_value(self) -> Any:
-        service = self._service
-        if service is None:
-            return None
-        return self.entity_description.value_fn(service)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        service = self._service
-        if service is None or self.entity_description.attrs_fn is None:
-            return None
-        return self.entity_description.attrs_fn(service)
-
-
 class DigiTotalsSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
-    """A sensor for the account-wide Digi totals."""
+    """An account-wide totals sensor on the account device."""
 
     _attr_has_entity_name = True
     _attr_attribution = ATTRIBUTION
@@ -263,19 +137,17 @@ class DigiTotalsSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
     ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
+        self._config_entry = config_entry
         self._attr_unique_id = f"{config_entry.entry_id}_{description.key}"
-        self._device_id = f"{config_entry.entry_id}_totals"
+        # Entity id is derived from the entry, not the e-mail, so it stays
+        # clean and stable regardless of the account label.
+        self.entity_id = (
+            f"sensor.{DOMAIN}_{config_entry.entry_id[:8]}_{description.key}"
+        )
 
     @property
     def device_info(self) -> DeviceInfo:
-        label = (self.coordinator.data or {}).get("account_label") or "Digi services"
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._device_id)},
-            name=f"Digi · {label}",
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            entry_type=DeviceEntryType.SERVICE,
-        )
+        return _account_device(self._config_entry)
 
     @property
     def native_value(self) -> Any:
@@ -295,5 +167,89 @@ class DigiTotalsSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
             "addresses_count": totals.get("addresses_count"),
             "services_count": totals.get("numar_servicii"),
             "last_invoice_id": totals.get("id_ultima_factura"),
+            "last_invoice_amount": totals.get("ultima_factura"),
             "last_update": data.get("last_update"),
+        }
+
+
+class DigiAddressSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
+    """One row per address; state is the amount due for that address."""
+
+    _attr_has_entity_name = True
+    _attr_attribution = ATTRIBUTION
+    _attr_icon = "mdi:map-marker"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_native_unit_of_measurement = CURRENCY_RON
+
+    def __init__(
+        self,
+        coordinator: DigiCoordinator,
+        config_entry: DigiConfigEntry,
+        address_unique: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._config_entry = config_entry
+        self._address_unique = address_unique
+        self._attr_unique_id = f"{config_entry.entry_id}_{address_unique}"
+        # The entity id uses the md5 address hash, never the address text, so
+        # the address is not exposed in entity_ids / dashboards / screenshots.
+        self.entity_id = (
+            f"sensor.{DOMAIN}_{config_entry.entry_id[:8]}_{address_unique}"
+        )
+
+    @property
+    def _address(self) -> dict[str, Any] | None:
+        for address in (self.coordinator.data or {}).get("addresses", []):
+            if address.get("address_unique") == self._address_unique:
+                return address
+        return None
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._address is not None
+
+    @property
+    def name(self) -> str:
+        address = self._address or {}
+        return address.get("address") or "Adresă Digi"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return _account_device(self._config_entry)
+
+    @property
+    def native_value(self) -> Any:
+        address = self._address
+        return address.get("rest") if address else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        address = self._address
+        if address is None:
+            return None
+        latest = address.get("latest") or {}
+        return {
+            "address": address.get("address"),
+            "services": address.get("service_label"),
+            "invoice_number": address.get("invoice_number"),
+            "issue_date": address.get("issue_date"),
+            "due_date": address.get("due_date"),
+            "status": address.get("status"),
+            "invoice_amount": address.get("amount"),
+            "overdue": "yes" if address.get("has_arrears") else "no",
+            "unpaid_invoices": address.get("unpaid_count"),
+            "services_count": address.get("services_count"),
+            "pdf_url": latest.get("pdf_url"),
+            "services_breakdown": address.get("services") or [],
+            "history": [
+                {
+                    "invoice_number": item.get("invoice_number"),
+                    "issue_date": item.get("issue_date"),
+                    "due_date": item.get("due_date"),
+                    "amount": item.get("amount"),
+                    "remaining": item.get("rest"),
+                    "status": item.get("status"),
+                }
+                for item in (address.get("history") or [])
+            ],
         }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import date, datetime
 from types import SimpleNamespace
 
@@ -96,19 +97,21 @@ def test_build_snapshot():
     snapshot = coord._build_snapshot(_make_digi_data())
 
     assert snapshot["account_label"] == "Digi account"
-    assert len(snapshot["services"]) == 1
+    # One row per address (services are aggregated within the address).
+    assert len(snapshot["addresses"]) == 1
 
-    svc = snapshot["services"][0]
-    assert svc["address"] == "Strada Exemplu 10"
-    assert svc["service_label"] == "Internet & TV"
-    assert svc["account_unique"] == "digi_strada_exemplu_10_internet_tv"
+    addr = snapshot["addresses"][0]
+    assert addr["address"] == "Strada Exemplu 10"
+    # Identity is the md5 hash of the address text, not the address itself.
+    assert addr["address_unique"] == hashlib.md5(b"Strada Exemplu 10").hexdigest()[:12]
+    assert addr["service_label"] == "Internet & TV"
     # Latest invoice (sorted by issue date desc) drives the headline values.
-    assert svc["amount"] == 120.0
-    assert svc["services_count"] == 2
+    assert addr["amount"] == 120.0
+    assert addr["services_count"] == 2
     # Only the unpaid invoice contributes to the outstanding balance.
-    assert svc["rest"] == 120.0
-    assert svc["has_arrears"] is True
-    assert svc["unpaid_count"] == 1
+    assert addr["rest"] == 120.0
+    assert addr["has_arrears"] is True
+    assert addr["unpaid_count"] == 1
 
     totals = snapshot["totals"]
     assert totals["sold"] == 120.0
@@ -129,8 +132,8 @@ def test_build_snapshot_no_arrears_when_all_paid():
         item["status"] = "Achitată"
 
     snapshot = coord._build_snapshot(data)
-    svc = snapshot["services"][0]
-    assert svc["rest"] == 0.0
-    assert svc["has_arrears"] is False
+    addr = snapshot["addresses"][0]
+    assert addr["rest"] == 0.0
+    assert addr["has_arrears"] is False
     assert snapshot["totals"]["has_arrears"] is False
     assert snapshot["totals"]["scadenta"] is None

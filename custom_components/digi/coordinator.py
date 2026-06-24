@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import date, timedelta
 from typing import Any
@@ -71,6 +72,16 @@ def _slugify(text: str) -> str:
 def _service_label(value: str | None) -> str:
     text = str(value or "").strip()
     return text or "Digi services"
+
+
+def _address_hash(address: str) -> str:
+    """A short, address-free identifier for an address (md5 of the text).
+
+    Used for entity/device ids so the readable address is not embedded in
+    entity_ids; the full address is kept as a sensor attribute. md5 (not crc32)
+    to keep collisions negligible.
+    """
+    return hashlib.md5((address or "").encode("utf-8")).hexdigest()[:12]
 
 
 def _services_count(latest: dict[str, Any]) -> int:
@@ -183,7 +194,7 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             or "Digi account"
         )
 
-        services: list[dict[str, Any]] = []
+        address_rows: list[dict[str, Any]] = []
         total_sold = 0.0
         total_ultima_factura = 0.0
         total_services = 0
@@ -191,90 +202,98 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         arrears_due_dates: list[date] = []
         latest_global: dict[str, Any] | None = None
         latest_global_date: date | None = None
-        addresses: set[str] = set()
+        address_keys: set[str] = set()
 
+        # One row per address — invoices are aggregated across the services
+        # billed at that address (Digi already groups invoices by address).
         for address_key, entry in digi_data.invoices_by_address.items():
-            address_slug = _slugify(entry.address or address_key)
-            addresses.add(address_key or address_slug)
+            address = entry.address or address_key
+            address_id = _address_hash(address)
+            address_keys.add(address_key or address_id)
 
-            groups: dict[str, list[dict[str, Any]]] = {}
-            for item in entry.history or []:
-                groups.setdefault(_service_label(item.get("description")), []).append(item)
+            items = [item for item in (entry.history or []) if item]
+            if not items and entry.latest:
+                items = [entry.latest]
+            if not items:
+                continue
 
-            if not groups:
-                latest = entry.latest or {}
-                groups[_service_label(latest.get("description"))] = [latest]
+            items.sort(
+                key=lambda x: _parse_date(x.get("issue_date")) or date.min,
+                reverse=True,
+            )
+            latest = items[0]
+            address_unique = address_id
 
-            for label, items in groups.items():
-                items = [item for item in items if item]
-                if not items:
-                    continue
+            unpaid = [
+                item
+                for item in items
+                if float(item.get("rest") or 0.0) > 0
+                or "neach" in str(item.get("status") or "").lower()
+            ]
+            rest = round(
+                sum(
+                    max(float(item.get("rest") or item.get("amount") or 0.0), 0.0)
+                    for item in unpaid
+                ),
+                2,
+            )
+            amount = round(float(latest.get("amount") or 0.0), 2)
+            issue_date = _parse_date(latest.get("issue_date"))
 
-                items.sort(
-                    key=lambda x: _parse_date(x.get("issue_date")) or date.min,
-                    reverse=True,
-                )
-                latest = items[0]
-                service_slug = _slugify(label)
-                account_unique = f"digi_{address_slug}_{service_slug}"
-
-                unpaid = [
-                    item
-                    for item in items
-                    if float(item.get("rest") or 0.0) > 0
-                    or "neach" in str(item.get("status") or "").lower()
-                ]
-                rest = round(
-                    sum(
-                        max(float(item.get("rest") or item.get("amount") or 0.0), 0.0)
-                        for item in unpaid
-                    ),
-                    2,
-                )
-                amount = round(float(latest.get("amount") or 0.0), 2)
-                issue_date = _parse_date(latest.get("issue_date"))
+            latest_services = latest.get("services") or []
+            if isinstance(latest_services, list) and latest_services:
+                services_count = len(latest_services)
+            else:
                 services_count = _services_count(latest)
 
-                total_sold += max(rest, 0.0)
-                total_ultima_factura += amount
-                total_services += services_count
-                has_arrears = has_arrears or rest > 0
+            # Distinct service descriptions seen at this address (for display).
+            service_labels: list[str] = []
+            for item in items:
+                label = _service_label(item.get("description"))
+                if label not in service_labels:
+                    service_labels.append(label)
+            service_label = ", ".join(service_labels[:3]) if service_labels else "Digi"
 
-                for item in unpaid:
-                    due = _parse_date(item.get("due_date"))
-                    if due:
-                        arrears_due_dates.append(due)
+            total_sold += max(rest, 0.0)
+            total_ultima_factura += amount
+            total_services += services_count
+            has_arrears = has_arrears or rest > 0
 
-                if issue_date and (
-                    latest_global_date is None or issue_date > latest_global_date
-                ):
-                    latest_global_date = issue_date
-                    latest_global = latest
-                elif latest_global is None:
-                    latest_global = latest
+            for item in unpaid:
+                due = _parse_date(item.get("due_date"))
+                if due:
+                    arrears_due_dates.append(due)
 
-                services.append(
-                    {
-                        "account_unique": account_unique,
-                        "address_key": address_key,
-                        "address": entry.address,
-                        "service_label": label,
-                        "service_slug": service_slug,
-                        "rest": rest,
-                        "amount": amount,
-                        "issue_date": latest.get("issue_date"),
-                        "due_date": latest.get("due_date"),
-                        "invoice_number": latest.get("invoice_number")
-                        or latest.get("invoice_id"),
-                        "status": latest.get("status"),
-                        "pdf_url": latest.get("pdf_url"),
-                        "unpaid_count": len(unpaid),
-                        "has_arrears": rest > 0,
-                        "services_count": services_count,
-                        "latest": latest,
-                        "history": items,
-                    }
-                )
+            if issue_date and (
+                latest_global_date is None or issue_date > latest_global_date
+            ):
+                latest_global_date = issue_date
+                latest_global = latest
+            elif latest_global is None:
+                latest_global = latest
+
+            address_rows.append(
+                {
+                    "address_unique": address_unique,
+                    "address_key": address_key,
+                    "address": address,
+                    "service_label": service_label,
+                    "rest": rest,
+                    "amount": amount,
+                    "issue_date": latest.get("issue_date"),
+                    "due_date": latest.get("due_date"),
+                    "invoice_number": latest.get("invoice_number")
+                    or latest.get("invoice_id"),
+                    "status": latest.get("status"),
+                    "pdf_url": latest.get("pdf_url"),
+                    "unpaid_count": len(unpaid),
+                    "has_arrears": rest > 0,
+                    "services_count": services_count,
+                    "services": latest_services,
+                    "latest": latest,
+                    "history": items,
+                }
+            )
 
         next_due = min(arrears_due_dates).isoformat() if arrears_due_dates else None
         latest_invoice_id = None
@@ -288,7 +307,7 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "account_id": str(account_id),
             "account_label": account_label,
-            "services": services,
+            "addresses": address_rows,
             "totals": {
                 "sold": round(total_sold, 2),
                 "ultima_factura": latest_invoice_value,
@@ -296,7 +315,7 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "scadenta": next_due,
                 "has_arrears": has_arrears,
                 "numar_servicii": total_services,
-                "addresses_count": len(addresses),
+                "addresses_count": len(address_keys),
             },
             "needs_reauth": digi_data.needs_reauth,
             "last_update": digi_data.last_update.isoformat()

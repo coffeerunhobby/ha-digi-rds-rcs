@@ -1,4 +1,4 @@
-"""Tests for entity/device uniqueness across multiple Digi accounts."""
+"""Tests for entity/device layout across multiple Digi accounts."""
 
 from __future__ import annotations
 
@@ -10,65 +10,86 @@ pytest.importorskip("homeassistant")
 
 from custom_components.digi.const import DOMAIN  # noqa: E402
 from custom_components.digi.sensor import (  # noqa: E402
-    SERVICE_SENSORS,
     TOTALS_SENSORS,
-    DigiServiceSensor,
+    DigiAddressSensor,
     DigiTotalsSensor,
 )
 
 
-def _coordinator(services: list[dict]) -> SimpleNamespace:
-    return SimpleNamespace(data={"services": services}, last_update_success=True)
+def _entry(entry_id: str) -> SimpleNamespace:
+    return SimpleNamespace(entry_id=entry_id, data={"username": "user@example.com"})
 
 
-def _service_payload() -> list[dict]:
-    # Two different accounts can legitimately have the same address + service
-    # text; the ids must still not collide.
+def _coordinator(addresses: list[dict]) -> SimpleNamespace:
+    return SimpleNamespace(
+        data={"addresses": addresses, "account_label": "Digi account"},
+        last_update_success=True,
+    )
+
+
+def _address_payload() -> list[dict]:
+    # Two different accounts can legitimately have the same address text; the
+    # ids must still not collide.
     return [
         {
-            "account_unique": "digi_strada_a_internet",
+            "address_unique": "ab12cd34ef56",
             "address": "Strada A",
             "service_label": "Internet",
+            "rest": 12.0,
+            "latest": {},
+            "history": [],
         }
     ]
 
 
-def test_service_sensor_ids_are_scoped_per_entry():
-    desc = SERVICE_SENSORS[0]
-    s1 = DigiServiceSensor(
-        _coordinator(_service_payload()),
-        SimpleNamespace(entry_id="entry_one"),
-        "digi_strada_a_internet",
-        desc,
+def test_account_is_a_single_device():
+    # Totals and address sensors must all live on the same per-entry device.
+    entry = _entry("entry_one")
+    totals = DigiTotalsSensor(
+        _coordinator(_address_payload()), entry, TOTALS_SENSORS[0]
     )
-    s2 = DigiServiceSensor(
-        _coordinator(_service_payload()),
-        SimpleNamespace(entry_id="entry_two"),
-        "digi_strada_a_internet",
-        desc,
+    address = DigiAddressSensor(
+        _coordinator(_address_payload()), entry, "ab12cd34ef56"
     )
-
-    # Same logical account_unique, different config entries → distinct ids.
-    assert s1.unique_id == "entry_one_digi_strada_a_internet_de_plata"
-    assert s2.unique_id == "entry_two_digi_strada_a_internet_de_plata"
-    assert s1.unique_id != s2.unique_id
-
-    id1 = next(iter(s1.device_info["identifiers"]))
-    id2 = next(iter(s2.device_info["identifiers"]))
-    assert id1 == (DOMAIN, "entry_one_digi_strada_a_internet")
-    assert id1 != id2
+    totals_device = next(iter(totals.device_info["identifiers"]))
+    address_device = next(iter(address.device_info["identifiers"]))
+    assert totals_device == (DOMAIN, "entry_one")
+    assert totals_device == address_device
 
 
-def test_totals_sensor_ids_are_scoped_per_entry():
-    desc = TOTALS_SENSORS[0]
-    t1 = DigiTotalsSensor(
-        _coordinator([]), SimpleNamespace(entry_id="entry_one"), desc
+def test_device_is_named_by_email():
+    totals = DigiTotalsSensor(
+        _coordinator(_address_payload()), _entry("entry_one"), TOTALS_SENSORS[0]
     )
-    t2 = DigiTotalsSensor(
-        _coordinator([]), SimpleNamespace(entry_id="entry_two"), desc
-    )
+    assert totals.device_info["name"] == "Digi · user@example.com"
 
-    assert t1.unique_id != t2.unique_id
-    id1 = next(iter(t1.device_info["identifiers"]))
-    id2 = next(iter(t2.device_info["identifiers"]))
-    assert id1 != id2
+
+def test_ids_are_scoped_per_entry_and_address_free():
+    a1 = DigiAddressSensor(
+        _coordinator(_address_payload()), _entry("entry_one"), "ab12cd34ef56"
+    )
+    a2 = DigiAddressSensor(
+        _coordinator(_address_payload()), _entry("entry_two"), "ab12cd34ef56"
+    )
+    assert a1.unique_id == "entry_one_ab12cd34ef56"
+    assert a2.unique_id == "entry_two_ab12cd34ef56"
+    assert a1.unique_id != a2.unique_id
+
+    # The entity_id must use the hash, never the address text.
+    assert "strada" not in a1.entity_id.lower()
+    assert a1.entity_id == "sensor.digi_entry_on_ab12cd34ef56"
+
+    d1 = next(iter(a1.device_info["identifiers"]))
+    d2 = next(iter(a2.device_info["identifiers"]))
+    assert d1 == (DOMAIN, "entry_one")
+    assert d1 != d2
+
+
+def test_address_sensor_value_and_name():
+    sensor = DigiAddressSensor(
+        _coordinator(_address_payload()), _entry("entry_one"), "ab12cd34ef56"
+    )
+    # The readable address remains the display name and an attribute.
+    assert sensor.name == "Strada A"
+    assert sensor.native_value == 12.0
+    assert sensor.extra_state_attributes["address"] == "Strada A"

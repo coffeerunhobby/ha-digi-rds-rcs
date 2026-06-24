@@ -69,12 +69,7 @@
   },
   "entity": {
     "sensor": {
-      "de_plata": { "name": "Amount due" },
-      "ultima_factura": { "name": "Last invoice" },
-      "scadenta": { "name": "Due date" },
-      "restanta": { "name": "Overdue" },
       "total_de_plata": { "name": "Total amount due" },
-      "total_ultima_factura": { "name": "Total last invoice" },
       "total_scadenta": { "name": "Next due date" },
       "total_restanta": { "name": "Has overdue" },
       "numar_servicii": { "name": "Number of services" }

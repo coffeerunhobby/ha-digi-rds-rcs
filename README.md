@@ -73,31 +73,28 @@ ulterior din **Configure** (⚙️), fără a reinstala integrarea.
 
 ## Entități disponibile
 
-Integrarea creează un **dispozitiv per adresă + serviciu**, plus un dispozitiv
-agregat la nivel de cont.
-
-### Per serviciu
-
-| Senzor | Descriere |
-| --- | --- |
-| Sumă de plată | Soldul restant pentru serviciu (RON) |
-| Valoare ultimă factură | Valoarea celei mai recente facturi (RON) |
-| Data scadenței | Scadența ultimei facturi |
-| Restanțe | `yes` / `no` — dacă există sold neachitat |
+Fiecare cont Digi este un **singur dispozitiv** în Home Assistant. Sub el se
+află senzorii agregați la nivel de cont și **câte un rând pentru fiecare
+adresă**.
 
 ### La nivel de cont
 
 | Senzor | Descriere |
 | --- | --- |
 | Total de plată | Suma tuturor soldurilor restante (RON) |
-| Valoare ultima factură | Valoarea ultimei facturi (RON) |
 | Următoarea scadență | Cea mai apropiată scadență neachitată |
-| Existență restanțe | `yes` / `no` |
+| Are restanță | `yes` / `no` |
 | Număr servicii active | Numărul serviciilor facturate |
 
-Senzorii de tip *Sumă de plată* includ atribute detaliate: numărul facturii,
-datele de emitere și scadență, statusul, linkul către PDF, lista serviciilor
-facturate și istoricul complet al facturilor.
+### Per adresă (un rând per adresă)
+
+| Senzor | Descriere |
+| --- | --- |
+| *(numele adresei)* | Suma de plată pentru adresa respectivă (RON) |
+
+Senzorul fiecărei adrese include atribute detaliate: serviciile facturate,
+numărul facturii, datele de emitere și scadență, statusul, valoarea facturii,
+linkul către PDF, defalcarea pe servicii și istoricul complet al facturilor.
 
 > ℹ️ Numele și stările entităților sunt în limba engleză (de exemplu `yes` /
 > `no`), pentru consistență indiferent de limba aleasă în Home Assistant.
