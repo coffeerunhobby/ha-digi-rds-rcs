@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<!-- SYNTHETIC fixture with fake data only. Mirrors the structure of
+     https://www.digi.ro/my-account/invoices used by the parser. -->
+<html>
+<head>
+  <select id="invoice-address-filter">
+    <option id="address-all" value="">Toate adresele</option>
+    <option id="address-1" value="address-1">Strada Exemplu 10, Bucuresti</option>
+  </select>
+  <script id="client-invoices-cfg" type="application/json">[{"id":"500010"},{"id":"500009"},{"id":"500008"}]</script>
+</head>
+<body>
+  <h2>Facturi curente</h2>
+  <div class="my-account-tbl">
+    <div class="my-account-tbl-row" data-invoice-address="address-1">
+      <div class="my-account-tbl-col select check">
+        <button type="button" data-invoices-id="500010">Vezi</button>
+      </div>
+      <div class="my-account-tbl-col date"> 05-06-2026 </div>
+      <div class="my-account-tbl-col description"> Factura Internet &amp; TV <span> 30-06-2026 </span></div>
+      <div class="my-account-tbl-col amount"> 77,80 LEI </div>
+    </div>
+  </div>
+
+  <h2>Facturi achitate</h2>
+  <div class="my-account-tbl">
+    <div class="my-account-tbl-row" data-invoice-address="address-1">
+      <div class="my-account-tbl-col date"> 05-05-2026 </div>
+      <div class="my-account-tbl-col description"> Factura Internet &amp; TV <span> 30-05-2026 </span></div>
+      <div class="my-account-tbl-col amount"> 77,72 LEI </div>
+    </div>
+    <div class="my-account-tbl-row" data-invoice-address="address-1">
+      <div class="my-account-tbl-col date"> 05-04-2026 </div>
+      <div class="my-account-tbl-col description"> Factura Internet &amp; TV <span> 30-04-2026 </span></div>
+      <div class="my-account-tbl-col amount"> 77,48 LEI </div>
+    </div>
+  </div>
+</body>
+</html>

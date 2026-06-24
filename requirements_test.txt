@@ -1,0 +1,5 @@
+# Test dependencies. Installing this pulls in pytest, pytest-asyncio and a
+# matching Home Assistant, enabling the full suite (parser + coordinator +
+# config flow). On platforms without a C toolchain the HA-dependent tests are
+# skipped automatically; the pure parser tests still run.
+pytest-homeassistant-custom-component

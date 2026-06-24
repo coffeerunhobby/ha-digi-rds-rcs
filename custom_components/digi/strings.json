@@ -1,0 +1,83 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Digi (RCS & RDS)",
+        "description": "Sign in with your Digi online account.",
+        "data": {
+          "username": "E-mail",
+          "password": "Password",
+          "update_interval": "Update interval (hours)",
+          "history_limit": "Number of invoices to read per address"
+        }
+      },
+      "twofa_method": {
+        "title": "Two-factor authentication",
+        "description": "Choose how you want to receive your verification code.",
+        "data": {
+          "twofa_method": "Method",
+          "twofa_target": "Destination"
+        }
+      },
+      "twofa_code": {
+        "title": "Enter verification code",
+        "description": "Enter the code you received from Digi.",
+        "data": {
+          "twofa_code": "Verification code"
+        }
+      },
+      "select_account": {
+        "title": "Select address",
+        "description": "Choose the Digi address / account to monitor.",
+        "data": {
+          "selected_account_id": "Address"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate Digi",
+        "description": "Your Digi session expired. Sign in again to continue.",
+        "data": {
+          "username": "E-mail",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid e-mail or password.",
+      "unknown": "Unexpected error. Please try again.",
+      "twofa_unavailable": "Could not read the two-factor authentication options.",
+      "twofa_send_failed": "Could not send the verification code. Try again.",
+      "invalid_code": "The verification code is invalid or expired.",
+      "account_selection_failed": "Could not confirm the selected address."
+    },
+    "abort": {
+      "already_configured": "This Digi account is already configured.",
+      "reauth_successful": "Re-authentication was successful.",
+      "reauth_account_mismatch": "The credentials are for a different Digi account."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Digi options",
+        "data": {
+          "update_interval": "Update interval (hours)",
+          "history_limit": "Number of invoices to read per address"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "de_plata": { "name": "Amount due" },
+      "ultima_factura": { "name": "Last invoice" },
+      "scadenta": { "name": "Due date" },
+      "restanta": { "name": "Overdue" },
+      "total_de_plata": { "name": "Total amount due" },
+      "total_ultima_factura": { "name": "Total last invoice" },
+      "total_scadenta": { "name": "Next due date" },
+      "total_restanta": { "name": "Has overdue" },
+      "numar_servicii": { "name": "Number of services" }
+    }
+  }
+}

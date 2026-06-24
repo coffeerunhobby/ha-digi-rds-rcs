@@ -1,0 +1,70 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Digi (RCS & RDS)",
+        "description": "Autentifică-te cu contul tău online Digi.",
+        "data": {
+          "username": "E-mail",
+          "password": "Parolă",
+          "update_interval": "Interval de actualizare (ore)",
+          "history_limit": "Număr de facturi citite per adresă"
+        }
+      },
+      "twofa_method": {
+        "title": "Autentificare în doi pași",
+        "description": "Alege cum vrei să primești codul de verificare.",
+        "data": {
+          "twofa_method": "Metodă",
+          "twofa_target": "Destinație"
+        }
+      },
+      "twofa_code": {
+        "title": "Introdu codul de verificare",
+        "description": "Introdu codul primit de la Digi.",
+        "data": {
+          "twofa_code": "Cod de verificare"
+        }
+      },
+      "select_account": {
+        "title": "Selectează adresa",
+        "description": "Alege adresa / contul Digi pe care vrei să-l monitorizezi.",
+        "data": {
+          "selected_account_id": "Adresă"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reautentificare Digi",
+        "description": "Sesiunea Digi a expirat. Autentifică-te din nou pentru a continua.",
+        "data": {
+          "username": "E-mail",
+          "password": "Parolă"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "E-mail sau parolă incorecte.",
+      "unknown": "Eroare neașteptată. Încearcă din nou.",
+      "twofa_unavailable": "Nu s-au putut citi opțiunile de autentificare în doi pași.",
+      "twofa_send_failed": "Nu s-a putut trimite codul de verificare. Încearcă din nou.",
+      "invalid_code": "Codul de verificare este invalid sau a expirat.",
+      "account_selection_failed": "Nu s-a putut confirma adresa selectată."
+    },
+    "abort": {
+      "already_configured": "Acest cont Digi este deja configurat.",
+      "reauth_successful": "Reautentificarea a reușit.",
+      "reauth_account_mismatch": "Credențialele sunt pentru un alt cont Digi."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opțiuni Digi",
+        "data": {
+          "update_interval": "Interval de actualizare (ore)",
+          "history_limit": "Număr de facturi citite per adresă"
+        }
+      }
+    }
+  }
+}

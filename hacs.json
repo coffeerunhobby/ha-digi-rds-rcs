@@ -1,0 +1,6 @@
+{
+  "name": "Digi (RCS & RDS)",
+  "render_readme": true,
+  "country": ["RO"],
+  "homeassistant": "2024.12.0"
+}

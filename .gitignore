@@ -1,0 +1,52 @@
+# Reference / inspiration projects — not part of the integration
+assets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Backups & temp
+*.bak
+*.orig
+*.tmp
+*~
+
+# Home Assistant test config
+config/
+.HA_VERSION
+home-assistant.log*
+home-assistant_v2.db*
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local dev probe — credentials & session state (never commit)
+tools/.digi_creds.json
+tools/.digi_state.json
+tools/.digi_invoices.html
+
+# Defensive: never commit anything that looks like secrets
+*.creds.json
+*credentials*
+*secrets*
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
