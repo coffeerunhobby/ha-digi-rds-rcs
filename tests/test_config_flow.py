@@ -17,10 +17,12 @@ from pytest_homeassistant_custom_component.common import (  # noqa: E402
 )
 
 from custom_components.digi.api import (  # noqa: E402
+    AddressOption,
     DigiAuthError,
     TwoFactorContext,
 )
 from custom_components.digi.const import (  # noqa: E402
+    CONF_ADDRESS_MAP,
     CONF_HISTORY_LIMIT,
     CONF_PASSWORD,
     CONF_UPDATE_INTERVAL,
@@ -55,11 +57,64 @@ def _mock_api(**overrides) -> MagicMock:
     api.validate_2fa_code = AsyncMock()
     api.get_address_options = AsyncMock(return_value=[])
     api.confirm_address = AsyncMock()
+    api.async_fetch_client_code = AsyncMock(return_value=None)
+    api.async_fetch_address_map = AsyncMock(return_value={})
     api.export_cookies = MagicMock(return_value=_COOKIES)
     api.close = AsyncMock()
     for key, value in overrides.items():
         setattr(api, key, value)
     return api
+
+
+async def test_single_address_stores_address_map(hass: HomeAssistant) -> None:
+    # No login selector → the map comes from the my-services dropdown (one row).
+    api = _mock_api(
+        async_fetch_address_map=AsyncMock(return_value={"55556666": "Single addr"}),
+    )
+    with patch(
+        "custom_components.digi.config_flow.DigiApiClient", return_value=api
+    ), patch("custom_components.digi.async_setup_entry", return_value=True):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], _USER_INPUT
+        )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_ADDRESS_MAP] == {"55556666": "Single addr"}
+
+
+async def test_multi_address_selector_stores_address_map(hass: HomeAssistant) -> None:
+    multi = {"11112222": "Addr 14", "33334444": "Addr 19"}
+    api = _mock_api(
+        login=AsyncMock(
+            return_value=(
+                "https://www.digi.ro/auth/address-select?redirectTo=/",
+                "<html></html>",
+            )
+        ),
+        get_address_options=AsyncMock(
+            return_value=[
+                AddressOption("11112222", "Addr 14"),
+                AddressOption("33334444", "Addr 19"),
+            ]
+        ),
+        async_fetch_address_map=AsyncMock(return_value=multi),
+    )
+    with patch(
+        "custom_components.digi.config_flow.DigiApiClient", return_value=api
+    ), patch("custom_components.digi.async_setup_entry", return_value=True):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], _USER_INPUT
+        )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_ADDRESS_MAP] == multi
+    api.confirm_address.assert_awaited_once()
 
 
 async def test_user_flow_success_without_2fa(hass: HomeAssistant) -> None:

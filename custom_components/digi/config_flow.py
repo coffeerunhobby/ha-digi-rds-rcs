@@ -176,11 +176,6 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             # address-select page — no user prompt. Fall back to a manual choice
             # only if that fails.
             self._address_options = await self._api.get_address_options(html)
-            # Keep the numeric address-id → label map; used to build stable,
-            # Digi-native entity ids (the invoices page only exposes the text).
-            self._pending[CONF_ADDRESS_MAP] = {
-                o.value: o.label for o in self._address_options if o.value
-            }
             target = next((o for o in self._address_options if o.value), None)
             if target is not None:
                 try:
@@ -367,6 +362,14 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             self._pending[CONF_CLIENT_CODE] = await self._api.async_fetch_client_code()
         except Exception:  # noqa: BLE001 - best effort, entity_ids fall back
             _LOGGER.debug("Could not read Digi client code")
+
+        # Read the {address-id: label} map from my-services. The dropdown is
+        # present for both single- and multi-address accounts, so this gives the
+        # real Digi address-ids regardless of whether the login showed a selector.
+        try:
+            self._pending[CONF_ADDRESS_MAP] = await self._api.async_fetch_address_map()
+        except Exception:  # noqa: BLE001 - best effort, entity_ids fall back
+            _LOGGER.debug("Could not read Digi address map")
 
         data = self._build_entry_data()
 

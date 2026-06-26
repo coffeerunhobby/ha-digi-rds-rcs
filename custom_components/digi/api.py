@@ -32,6 +32,7 @@ from .const import (
     BASE_URL,
     INVOICES_URL,
     LOGIN_URL,
+    MY_SERVICES_URL,
     TWO_FA_SEND_URL,
     TWO_FA_URL,
     TWO_FA_VALIDATE_URL,
@@ -583,6 +584,26 @@ class DigiApiClient:
                     )
             except json.JSONDecodeError:
                 pass
+
+    async def async_fetch_address_map(self) -> dict[str, str]:
+        """Read the {address-id: label} map from the my-services dropdown.
+
+        Multi-address accounts get this from the login address-select page, but
+        single-address accounts never see it — so for them we read the one
+        address-id from the `my-services-address-select` dropdown on the
+        my-services page. Returns {} if the dropdown is absent (→ md5 fallback).
+        """
+        try:
+            resp = await self._request("GET", MY_SERVICES_URL, allow_redirects=True)
+            html = await self._read_text(resp)
+        except aiohttp.ClientError:
+            return {}
+        if resp.status != 200:
+            return {}
+        options = self._extract_select_options(
+            unescape(html), "my-services-address-select"
+        )
+        return {option.value: option.label for option in options if option.value}
 
     async def async_fetch_client_code(self) -> str | None:
         """Read the Digi client code ("Cod client") from the account page."""

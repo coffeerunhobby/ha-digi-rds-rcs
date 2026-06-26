@@ -241,13 +241,26 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         address_rows: list[dict[str, Any]] = []
 
+        # When there is exactly one address and one known address-id, map them
+        # directly (single-address accounts), regardless of label formatting.
+        address_map = self.config_entry.data.get(CONF_ADDRESS_MAP) or {}
+        direct_id = (
+            next(iter(address_map))
+            if len(address_map) == 1 and len(digi_data.invoices_by_address) == 1
+            else None
+        )
+
         # One row per address — invoices are aggregated across the services
         # billed at that address (Digi already groups invoices by address).
         for address_key, entry in digi_data.invoices_by_address.items():
             address = entry.address or address_key
-            # Prefer the real Digi numeric address-id; fall back to a hash of the
-            # address text (single-address accounts, or no match).
-            address_unique = self._resolve_address_id(address) or _address_hash(address)
+            # Prefer the real Digi numeric address-id (matched by label, or the
+            # 1:1 direct map); fall back to a hash of the address text.
+            address_unique = (
+                self._resolve_address_id(address)
+                or direct_id
+                or _address_hash(address)
+            )
 
             items = [item for item in (entry.history or []) if item]
             if not items and entry.latest:

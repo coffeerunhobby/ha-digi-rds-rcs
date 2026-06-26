@@ -150,6 +150,17 @@ def test_build_snapshot():
     assert addr["unpaid_count"] == 1
 
 
+def test_build_snapshot_single_address_direct_maps_id():
+    coord = DigiCoordinator.__new__(DigiCoordinator)
+    # One invoice address + one known id: map directly even if the label does not
+    # substring-match (single-address accounts).
+    coord.config_entry = SimpleNamespace(
+        data={CONF_ADDRESS_MAP: {"99990000": "A differently-formatted label"}}
+    )
+    snapshot = coord._build_snapshot(_make_digi_data())
+    assert snapshot["addresses"][0]["address_unique"] == "99990000"
+
+
 def test_build_snapshot_no_arrears_when_all_paid():
     coord = DigiCoordinator.__new__(DigiCoordinator)
     coord.config_entry = SimpleNamespace(data={})
