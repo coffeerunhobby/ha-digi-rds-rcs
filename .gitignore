@@ -36,6 +36,8 @@ htmlcov/
 tools/.digi_creds.json
 tools/.digi_state.json
 tools/.digi_invoices.html
+tools/.digi_*.html
+Makefile.local
 
 # Defensive: never commit anything that looks like secrets
 *.creds.json
