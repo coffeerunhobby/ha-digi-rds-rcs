@@ -17,7 +17,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from html import unescape
 from typing import Any
 from urllib.parse import urljoin
@@ -959,7 +959,7 @@ class DigiApiClient:
             account_label=None,
             account_id=None,
             invoices_by_address=invoices_by_address,
-            last_update=datetime.utcnow(),
+            last_update=datetime.now(timezone.utc),
             needs_reauth=False,
         )
 

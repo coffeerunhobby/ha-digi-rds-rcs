@@ -40,6 +40,29 @@ def statistic_id(address_unique: str, direction: str) -> str:
     return f"{DOMAIN}:connection_{direction}_{address_unique}"
 
 
+def _statistic_metadata(stat_id: str, name: str) -> StatisticMetaData:
+    """Build sum-only statistic metadata, robust across HA versions.
+
+    Newer Home Assistant replaced ``has_mean`` with a ``mean_type`` enum; older
+    releases (down to the 2024.12 we support) only know ``has_mean``. Provide
+    whichever the running version expects so the same code works on both.
+    """
+    metadata: StatisticMetaData = {
+        "has_sum": True,
+        "name": name,
+        "source": DOMAIN,
+        "statistic_id": stat_id,
+        "unit_of_measurement": UnitOfInformation.GIBIBYTES,
+    }
+    try:
+        from homeassistant.components.recorder.models import StatisticMeanType
+
+        metadata["mean_type"] = StatisticMeanType.NONE
+    except ImportError:
+        metadata["has_mean"] = False
+    return metadata
+
+
 def async_update_traffic_statistics(
     hass: HomeAssistant,
     address_unique: str,
@@ -65,13 +88,9 @@ def async_update_traffic_statistics(
 
     days = sorted(daily)
     for direction, key in _DIRECTIONS:
-        metadata = StatisticMetaData(
-            has_mean=False,
-            has_sum=True,
-            name=f"Digi {address_name} {direction}",
-            source=DOMAIN,
-            statistic_id=statistic_id(address_unique, direction),
-            unit_of_measurement=UnitOfInformation.GIBIBYTES,
+        metadata = _statistic_metadata(
+            statistic_id(address_unique, direction),
+            f"Digi {address_name} {direction}",
         )
         cumulative = 0.0
         points: list[StatisticData] = []
