@@ -89,6 +89,45 @@ def test_parse_invoice_page_rows_and_ids():
     assert by_id["500009"].amount == 77.72
     assert by_id["500008"].amount == 77.48
 
+    # The current invoice is tagged; the archive ones are not.
+    assert by_id["500010"].is_current is True
+    assert by_id["500009"].is_current is False
+    assert by_id["500008"].is_current is False
+
+
+def _row(invoice_id, address_key, issue_date, *, is_current):
+    return api.InvoiceSummary(
+        invoice_id=invoice_id,
+        address_key=address_key,
+        address="A",
+        issue_date=issue_date,
+        due_date="30-07-2026",
+        description="x",
+        amount=10.0,
+        is_current=is_current,
+    )
+
+
+def test_select_detail_ids_fetches_current_and_latest_only():
+    client = _client()
+    rows = [
+        _row("100", "a", "05-07-2026", is_current=True),   # current → fetch
+        _row("99", "a", "05-06-2026", is_current=False),   # old paid → skip
+        _row("98", "a", "05-05-2026", is_current=False),   # old paid → skip
+    ]
+    assert client._select_detail_ids(rows, set()) == {"100"}
+
+
+def test_select_detail_ids_latest_paid_then_cached():
+    client = _client()
+    rows = [
+        _row("99", "a", "05-06-2026", is_current=False),   # latest paid → fetch once
+        _row("98", "a", "05-05-2026", is_current=False),   # older paid → skip
+    ]
+    assert client._select_detail_ids(rows, set()) == {"99"}
+    # Once the latest paid invoice is cached, nothing needs fetching.
+    assert client._select_detail_ids(rows, {"99"}) == set()
+
 
 # ── Invoice detail (current markup with hierarchical services) ──────────────
 def test_parse_invoice_detail_extracts_leaf_services():

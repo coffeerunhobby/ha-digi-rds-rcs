@@ -144,6 +144,9 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Snapshot of the user-tunable settings; used to decide whether an
         # entry update should trigger a reload (cookie writes must not).
         self._settings_signature = (interval_hours, self._history_limit)
+        # Cache of paid (immutable) invoice details, reused across polls so we
+        # only fetch new/current invoices each time.
+        self._detail_cache: dict[str, Any] = {}
         self.api: DigiApiClient | None = None
 
     def settings_changed(self) -> bool:
@@ -200,7 +203,10 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ConfigEntryAuthFailed("Digi session is missing — re-authenticate.")
 
         try:
-            digi_data = await api.async_fetch_data(history_limit=self._history_limit)
+            digi_data = await api.async_fetch_data(
+                history_limit=self._history_limit,
+                detail_cache=self._detail_cache,
+            )
         except DigiReauthRequired as err:
             raise ConfigEntryAuthFailed(
                 "Digi session expired — re-authentication required."

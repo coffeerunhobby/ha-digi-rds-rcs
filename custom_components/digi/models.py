@@ -18,6 +18,9 @@ class InvoiceSummary:
     due_date: str
     description: str
     amount: float
+    # True for the "Facturi curente" section (current/unpaid), False for the
+    # "Facturi achitate" archive — decides which invoice details to fetch.
+    is_current: bool = False
 
 
 @dataclass(slots=True)

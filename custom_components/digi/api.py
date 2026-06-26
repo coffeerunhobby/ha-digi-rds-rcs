@@ -658,7 +658,37 @@ class DigiApiClient:
             "the request may have been blocked. It will retry automatically."
         )
 
-    async def async_fetch_data(self, history_limit: int = 6) -> DigiData:
+    def _select_detail_ids(
+        self, recent_rows: list[InvoiceSummary], cached_ids: set[str]
+    ) -> set[str]:
+        """Decide which invoice details to fetch this poll.
+
+        - Current/unpaid invoices: always (their remaining balance changes).
+        - The latest invoice per address: needed for the service breakdown,
+          unless it is a paid invoice already in the cache.
+        - Older paid invoices: not fetched at all — their page-row data is used.
+        """
+        by_address: dict[str, list[InvoiceSummary]] = {}
+        for row in recent_rows:
+            by_address.setdefault(row.address_key, []).append(row)
+
+        needed: set[str] = set()
+        for bucket in by_address.values():
+            latest = max(
+                bucket, key=lambda r: self._parse_date_for_sort(r.issue_date)
+            )
+            for row in bucket:
+                if row.is_current:
+                    needed.add(row.invoice_id)
+                elif row is latest and row.invoice_id not in cached_ids:
+                    needed.add(row.invoice_id)
+        return needed
+
+    async def async_fetch_data(
+        self,
+        history_limit: int = 6,
+        detail_cache: dict[str, InvoiceDetail] | None = None,
+    ) -> DigiData:
         html = await self._load_invoice_page()
 
         parsed = self._parse_invoice_page(html)
@@ -666,28 +696,50 @@ class DigiApiClient:
             raise DigiError("No invoices found in Digi page")
 
         rows: list[InvoiceSummary] = parsed["rows"]
+        cache = detail_cache if detail_cache is not None else {}
 
-        recent_ids_by_address: dict[str, list[str]] = {}
+        # Keep the most-recent `history_limit` rows per address (current first).
+        recent_rows: list[InvoiceSummary] = []
+        per_address: dict[str, int] = {}
         for row in rows:
-            bucket = recent_ids_by_address.setdefault(row.address_key, [])
-            if len(bucket) < history_limit:
-                bucket.append(row.invoice_id)
+            count = per_address.get(row.address_key, 0)
+            if count < history_limit:
+                recent_rows.append(row)
+                per_address[row.address_key] = count + 1
 
-        details: dict[str, InvoiceDetail] = {}
-        for invoice_id in {
-            item for values in recent_ids_by_address.values() for item in values
-        }:
-            details[invoice_id] = await self._fetch_invoice_details(invoice_id)
+        # Fetch only what's needed (current + uncached latest); reuse the rest.
+        to_fetch = self._select_detail_ids(recent_rows, set(cache))
+        fetched: dict[str, InvoiceDetail] = {}
+        for invoice_id in to_fetch:
+            fetched[invoice_id] = await self._fetch_invoice_details(invoice_id)
             await asyncio.sleep(0.15)
+
+        def _detail_for(row: InvoiceSummary) -> InvoiceDetail:
+            if row.invoice_id in fetched:
+                detail = fetched[row.invoice_id]
+                if not row.is_current:
+                    cache[row.invoice_id] = detail  # paid details are immutable
+                return detail
+            if row.invoice_id in cache:
+                return cache[row.invoice_id]
+            # An older paid invoice we deliberately skipped: use the page row.
+            return InvoiceDetail(
+                invoice_id=row.invoice_id,
+                invoice_number=row.invoice_id,
+                issue_date=row.issue_date,
+                due_date=row.due_date,
+                total=row.amount,
+                rest=0.0,
+                status="Achitată",
+                pdf_url=None,
+                services=[],
+            )
 
         invoices_by_address: dict[str, AddressInvoices] = {}
         grouped: dict[str, list[dict[str, Any]]] = {}
 
-        for row in rows:
-            if row.invoice_id not in details:
-                continue
-
-            detail = details[row.invoice_id]
+        for row in recent_rows:
+            detail = _detail_for(row)
             item = {
                 "invoice_id": row.invoice_id,
                 "address": row.address,
@@ -702,6 +754,13 @@ class DigiApiClient:
                 "services": detail.services,
             }
             grouped.setdefault(row.address_key, []).append(item)
+
+        # Keep the cache bounded to invoices still shown on the page.
+        if detail_cache is not None:
+            visible = {row.invoice_id for row in recent_rows}
+            for invoice_id in list(cache):
+                if invoice_id not in visible:
+                    del cache[invoice_id]
 
         for address_key, items in grouped.items():
             items.sort(
@@ -765,6 +824,7 @@ class DigiApiClient:
                         due_date=self._clean_text(due_date),
                         description=self._clean_text(description),
                         amount=self._parse_money(amount_text),
+                        is_current=True,
                     )
                 )
 
