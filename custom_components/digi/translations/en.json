@@ -76,9 +76,7 @@
       "number_of_services": { "name": "Number of services" },
       "public_ip": { "name": "Public IP" },
       "connection_status": { "name": "Connection status" },
-      "connection_uptime": { "name": "Connection uptime" },
-      "data_downloaded": { "name": "Data downloaded" },
-      "data_uploaded": { "name": "Data uploaded" }
+      "connection_uptime": { "name": "Connection uptime" }
     }
   }
 }

@@ -22,9 +22,7 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
-    SensorStateClass,
 )
-from homeassistant.const import UnitOfInformation
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -154,8 +152,9 @@ async def async_setup_entry(
                 entities.append(
                     DigiInternetSensor(coordinator, config_entry, address_unique)
                 )
-            # Connection (uptime / traffic) sensors appear once the FiberLink
-            # logs have been read for an internet address.
+            # Connection status / uptime sensors appear once the FiberLink logs
+            # have been read for an internet address. Traffic is exposed as
+            # native long-term statistics (see statistics.py), not as entities.
             if address.get("connection") and address_unique not in known_connection:
                 known_connection.add(address_unique)
                 entities.append(
@@ -167,12 +166,6 @@ async def async_setup_entry(
                     DigiConnectionUptimeSensor(
                         coordinator, config_entry, address_unique
                     )
-                )
-                entities.extend(
-                    DigiTrafficSensor(
-                        coordinator, config_entry, address_unique, description
-                    )
-                    for description in TRAFFIC_SENSORS
                 )
         if entities:
             async_add_entities(entities)
@@ -319,42 +312,6 @@ class DigiInternetSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
         }
 
 
-@dataclass(frozen=True, kw_only=True)
-class DigiTrafficDescription(SensorEntityDescription):
-    """Describes a monthly-traffic sensor (download or upload)."""
-
-    # Key into the coordinator's connection dict for the current month total.
-    current_key: str
-    # Key into each monthly bucket ({"download_bytes"/"upload_bytes"}).
-    monthly_key: str
-
-
-TRAFFIC_SENSORS: tuple[DigiTrafficDescription, ...] = (
-    DigiTrafficDescription(
-        key="data_downloaded",
-        translation_key="data_downloaded",
-        icon="mdi:download-network-outline",
-        current_key="download_bytes_month",
-        monthly_key="download_bytes",
-    ),
-    DigiTrafficDescription(
-        key="data_uploaded",
-        translation_key="data_uploaded",
-        icon="mdi:upload-network-outline",
-        current_key="upload_bytes_month",
-        monthly_key="upload_bytes",
-    ),
-)
-
-
-def _to_gib(num_bytes: Any) -> float:
-    return round((num_bytes or 0) / 1024**3, 2)
-
-
-def _monthly_gib(monthly: dict[str, Any] | None, key: str) -> dict[str, float]:
-    return {month: _to_gib(v.get(key)) for month, v in (monthly or {}).items()}
-
-
 class _DigiConnectionEntity(CoordinatorEntity[DigiCoordinator], SensorEntity):
     """Base for the opt-in FiberLink connection sensors on an address device.
 
@@ -443,12 +400,6 @@ class DigiConnectionStatusSensor(_DigiConnectionEntity):
             "reconnects_30d": connection.get("reconnects"),
             "current_ip": connection.get("current_ip"),
             "current_mac": connection.get("current_mac"),
-            "monthly_download_gib": _monthly_gib(
-                connection.get("monthly"), "download_bytes"
-            ),
-            "monthly_upload_gib": _monthly_gib(
-                connection.get("monthly"), "upload_bytes"
-            ),
             "recent_sessions": connection.get("sessions"),
         }
 
@@ -485,48 +436,3 @@ class DigiConnectionUptimeSensor(_DigiConnectionEntity):
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
         return parsed
-
-
-class DigiTrafficSensor(_DigiConnectionEntity):
-    """Current-month download/upload (GiB), with the monthly history in attrs."""
-
-    entity_description: DigiTrafficDescription
-    _attr_device_class = SensorDeviceClass.DATA_SIZE
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = UnitOfInformation.GIBIBYTES
-    _attr_suggested_display_precision = 2
-
-    def __init__(
-        self,
-        coordinator: DigiCoordinator,
-        config_entry: DigiConfigEntry,
-        address_unique: str,
-        description: DigiTrafficDescription,
-    ) -> None:
-        super().__init__(coordinator, config_entry, address_unique)
-        self.entity_description = description
-        self._attr_translation_key = description.translation_key
-        self._attr_icon = description.icon
-        self._attr_unique_id = f"{self._device_id}_{description.key}"
-        self.entity_id = (
-            f"sensor.{DOMAIN}_{self._prefix}_{address_unique}_{description.key}"
-        )
-
-    @property
-    def native_value(self) -> float | None:
-        connection = self._connection
-        if connection is None:
-            return None
-        return _to_gib(connection.get(self.entity_description.current_key))
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        connection = self._connection
-        if connection is None:
-            return None
-        return {
-            "month": connection.get("month_key"),
-            "monthly_gib": _monthly_gib(
-                connection.get("monthly"), self.entity_description.monthly_key
-            ),
-        }

@@ -11,12 +11,10 @@ pytest.importorskip("homeassistant")
 from custom_components.digi.const import DOMAIN  # noqa: E402
 from custom_components.digi.sensor import (  # noqa: E402
     ADDRESS_SENSORS,
-    TRAFFIC_SENSORS,
     DigiAddressSensor,
     DigiConnectionStatusSensor,
     DigiConnectionUptimeSensor,
     DigiInternetSensor,
-    DigiTrafficSensor,
 )
 
 HASH = "ab12cd34ef56"
@@ -145,19 +143,6 @@ def _connection_coordinator() -> SimpleNamespace:
                         "uptime_seconds": 315000,
                         "current_ip": "203.0.113.7",
                         "current_mac": "AA:BB:CC:DD:EE:FF",
-                        "month_key": "2026-06",
-                        "download_bytes_month": 30 * 1024**3,
-                        "upload_bytes_month": 12 * 1024**3,
-                        "monthly": {
-                            "2026-05": {
-                                "download_bytes": 10 * 1024**3,
-                                "upload_bytes": 4 * 1024**3,
-                            },
-                            "2026-06": {
-                                "download_bytes": 30 * 1024**3,
-                                "upload_bytes": 12 * 1024**3,
-                            },
-                        },
                         "sessions": [],
                     },
                 }
@@ -176,7 +161,8 @@ def test_connection_status_sensor():
     attrs = sensor.extra_state_attributes
     assert attrs["reconnects_30d"] == 5
     assert attrs["current_ip"] == "203.0.113.7"
-    assert attrs["monthly_download_gib"] == {"2026-05": 10.0, "2026-06": 30.0}
+    # Traffic is exposed via long-term statistics, not sensor attributes.
+    assert "monthly_download_gib" not in attrs
 
 
 def test_connection_uptime_sensor_is_timezone_aware():
@@ -186,15 +172,3 @@ def test_connection_uptime_sensor_is_timezone_aware():
     assert value is not None
     assert value.tzinfo is not None  # HA timestamp sensors must be tz-aware
     assert value.year == 2026 and value.month == 6 and value.day == 22
-
-
-def test_traffic_sensors_report_gib():
-    coordinator = _connection_coordinator()
-    download = next(d for d in TRAFFIC_SENSORS if d.key == "data_downloaded")
-    sensor = DigiTrafficSensor(coordinator, _entry("entry_one"), HASH, download)
-    assert sensor.native_value == 30.0  # 30 GiB this month
-    assert sensor.entity_id == f"sensor.digi_entry_on_{HASH}_data_downloaded"
-    assert sensor.extra_state_attributes["monthly_gib"] == {
-        "2026-05": 10.0,
-        "2026-06": 30.0,
-    }

@@ -62,15 +62,15 @@ def test_daily_spread_splits_a_session_across_its_days():
     assert all(v["download_bytes"] == GIB for v in daily.values())
 
 
-def test_monthly_spread_splits_across_month_boundary():
-    # 10 GB over May 28 → Jun 2 (6 days, ~1.667 GB/day): 4 days in May, 2 in Jun.
-    sessions = [_session("2026-05-28T00:00:00", "2026-06-02T00:00:00", dl=10 * GIB)]
-    monthly = store.monthly_traffic(sessions)
-    assert set(monthly) == {"2026-05", "2026-06"}
-    total = monthly["2026-05"]["download_bytes"] + monthly["2026-06"]["download_bytes"]
-    # Rounding aside, the whole 10 GB is preserved across the two months.
-    assert abs(total - 10 * GIB) <= 2
-    assert monthly["2026-05"]["download_bytes"] > monthly["2026-06"]["download_bytes"]
+def test_daily_spread_crosses_month_boundary():
+    # 6 GB over May 29 → Jun 1 (4 days, 1.5 GB/day): 3 days in May, 1 in Jun.
+    sessions = [_session("2026-05-29T00:00:00", "2026-06-01T00:00:00", dl=6 * GIB)]
+    daily = store.daily_traffic(sessions)
+    may = {d: v for d, v in daily.items() if d.startswith("2026-05")}
+    jun = {d: v for d, v in daily.items() if d.startswith("2026-06")}
+    assert len(may) == 3 and len(jun) == 1
+    total = sum(v["download_bytes"] for v in daily.values())
+    assert abs(total - 6 * GIB) <= 2  # whole amount preserved across the months
 
 
 # ── derive_status ────────────────────────────────────────────────────────────

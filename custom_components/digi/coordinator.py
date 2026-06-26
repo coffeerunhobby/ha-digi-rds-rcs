@@ -33,7 +33,8 @@ from .const import (
     LOGS_WINDOW_DAYS,
 )
 from .scheduler import DATA_SCHEDULER
-from .store import DigiSessionStore, derive_status, monthly_traffic
+from .statistics import async_update_traffic_statistics
+from .store import DigiSessionStore, derive_status
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -277,18 +278,15 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     address_unique, [asdict(s) for s in fetched], today=today
                 )
                 store_dirty = True
+                # Daily TX/RX → HA long-term statistics (native monthly graphs).
+                async_update_traffic_statistics(
+                    self.hass, address_unique, address["address"], sessions
+                )
             else:
                 sessions = store.sessions(address_unique)
 
-            monthly = monthly_traffic(sessions)
-            month_key = now.strftime("%Y-%m")
-            current = monthly.get(month_key, {})
             address["connection"] = {
                 **derive_status(sessions, now=now),
-                "month_key": month_key,
-                "download_bytes_month": current.get("download_bytes", 0),
-                "upload_bytes_month": current.get("upload_bytes", 0),
-                "monthly": monthly,
                 "sessions": sessions[:50],
             }
 

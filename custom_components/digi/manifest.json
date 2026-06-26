@@ -1,6 +1,7 @@
 {
   "domain": "digi",
   "name": "Digi (RCS & RDS)",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@coffeerunhobby"],
   "config_flow": true,
   "dependencies": [],

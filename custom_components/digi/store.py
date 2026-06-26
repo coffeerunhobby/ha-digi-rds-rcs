@@ -118,25 +118,6 @@ def daily_traffic(sessions: list[Session]) -> dict[str, dict[str, int]]:
     }
 
 
-def monthly_traffic(sessions: list[Session]) -> dict[str, dict[str, int]]:
-    """Per-month {YYYY-MM: {download_bytes, upload_bytes}} (daily-spread)."""
-    download, upload = _daily_traffic(sessions)
-    months_dl: dict[str, float] = defaultdict(float)
-    months_ul: dict[str, float] = defaultdict(float)
-    for day, value in download.items():
-        months_dl[day.strftime("%Y-%m")] += value
-    for day, value in upload.items():
-        months_ul[day.strftime("%Y-%m")] += value
-    months = sorted(set(months_dl) | set(months_ul))
-    return {
-        month: {
-            "download_bytes": int(round(months_dl.get(month, 0.0))),
-            "upload_bytes": int(round(months_ul.get(month, 0.0))),
-        }
-        for month in months
-    }
-
-
 def derive_status(
     sessions: list[Session],
     *,
