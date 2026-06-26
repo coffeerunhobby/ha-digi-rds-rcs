@@ -26,11 +26,11 @@ Assistant.
 - Suport pentru mai multe conturi Digi, fiecare cu propria sesiune (cookie).
 - Conturile sunt actualizate **pe rând** (round-robin), nu simultan — câte o
   reîmprospătare la fiecare interval, ciclând prin conturi.
-- Dispozitive separate pentru fiecare adresă și serviciu monitorizat.
-- Senzori pentru: suma de plată, valoarea ultimei facturi, data scadenței și
-  existența restanțelor.
-- Senzori agregați la nivel de cont: total de plată, următoarea scadență,
-  numărul serviciilor active și existența restanțelor.
+- Dispozitiv separat pentru fiecare adresă monitorizată.
+- Senzori per adresă: suma de plată, valoarea ultimei facturi, data scadenței,
+  existența restanțelor și numărul serviciilor facturate.
+- Senzor opțional pentru IP-ul public al serviciului de internet (dezactivat
+  implicit).
 - Istoric facturi și detalii complete disponibile ca atribute.
 - Interval de actualizare și număr de facturi citite configurabile.
 - Reautentificare automată atunci când sesiunea expiră.
@@ -107,9 +107,10 @@ linkul către PDF, defalcarea pe servicii și istoricul complet al facturilor.
 
 ## Exemple de automatizări
 
-> ID-urile entităților depind de adresa și serviciile tale, așa că verifică
-> valorile reale în **Developer Tools → States** (caută `digi`). Exemplele de
-> mai jos sunt orientative — înlocuiește `sensor.digi_cont_...` cu ID-urile tale.
+> ID-urile entităților depind de codul tău de client și de id-ul de adresă Digi,
+> așa că verifică valorile reale în **Developer Tools → States** (caută `digi`).
+> Exemplele de mai jos folosesc `sensor.digi_123456_11112222_...` ca substituent
+> — înlocuiește-l cu ID-urile tale.
 
 ### Notificare la apariția unei restanțe
 
@@ -118,14 +119,14 @@ automation:
   - alias: "Digi — restanță"
     trigger:
       - platform: state
-        entity_id: sensor.digi_cont_has_overdue
+        entity_id: sensor.digi_123456_11112222_overdue
         to: "yes"
     action:
       - service: notify.mobile_app_telefonul_meu
         data:
           title: "Digi — factură restantă"
           message: >
-            Ai de plată {{ states('sensor.digi_cont_total_amount_due') }} RON.
+            Ai de plată {{ states('sensor.digi_123456_11112222_amount_due') }} RON.
 ```
 
 ### Notificare la emiterea unei facturi noi
@@ -135,15 +136,15 @@ automation:
   - alias: "Digi — factură nouă"
     trigger:
       - platform: state
-        entity_id: sensor.digi_cont_total_amount_due
-        attribute: last_invoice_id
+        entity_id: sensor.digi_123456_11112222_amount_due
+        attribute: invoice_number
     action:
       - service: notify.mobile_app_telefonul_meu
         data:
           title: "Digi — factură nouă"
           message: >
-            Factura {{ state_attr('sensor.digi_cont_total_amount_due', 'last_invoice_id') }}
-            în valoare de {{ states('sensor.digi_cont_total_last_invoice') }} RON.
+            Factura {{ state_attr('sensor.digi_123456_11112222_amount_due', 'invoice_number') }}
+            în valoare de {{ states('sensor.digi_123456_11112222_last_invoice') }} RON.
 ```
 
 ### Card pentru Dashboard
@@ -152,14 +153,14 @@ automation:
 type: entities
 title: Digi
 entities:
-  - entity: sensor.digi_cont_total_amount_due
-    name: Total de plată
-  - entity: sensor.digi_cont_next_due_date
-    name: Următoarea scadență
-  - entity: sensor.digi_cont_has_overdue
+  - entity: sensor.digi_123456_11112222_amount_due
+    name: Sumă de plată
+  - entity: sensor.digi_123456_11112222_due_date
+    name: Scadență
+  - entity: sensor.digi_123456_11112222_overdue
     name: Restanțe
-  - entity: sensor.digi_cont_number_of_services
-    name: Servicii active
+  - entity: sensor.digi_123456_11112222_number_of_services
+    name: Servicii facturate
 ```
 
 ---
