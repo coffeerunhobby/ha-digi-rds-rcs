@@ -14,16 +14,28 @@ from homeassistant.components.recorder.statistics import (  # noqa: E402
     statistics_during_period,
 )
 from homeassistant.util import dt as dt_util  # noqa: E402
-from pytest_homeassistant_custom_component.common import (  # noqa: E402
-    async_wait_recording_done,
-)
 
 from custom_components.digi.statistics import (  # noqa: E402
     async_update_traffic_statistics,
     statistic_id,
 )
 
+
+async def _wait_recorder(hass):
+    """Flush the recorder queue (portable across HA versions / phacc)."""
+    await hass.async_block_till_done()
+    await get_instance(hass).async_block_till_done()
+    await hass.async_block_till_done()
+
 GIB = 1024**3
+
+
+@pytest.fixture(autouse=True)
+def _auto_enable_custom_integrations():
+    """Override the conftest autouse: this module drives ``hass`` through
+    ``recorder_mock`` (which must initialise before ``hass``), so it must not
+    pull ``enable_custom_integrations`` and set ``hass`` up first."""
+    yield
 
 
 def _session(connect, disconnect, dl=0, ul=0):
@@ -43,7 +55,7 @@ async def test_traffic_statistics_imported(recorder_mock, hass):
     sessions = [_session("2026-06-01T00:00:00", "2026-06-03T00:00:00", dl=6 * GIB)]
 
     async_update_traffic_statistics(hass, "abc123", "Test Address", sessions)
-    await async_wait_recording_done(hass)
+    await _wait_recorder(hass)
 
     download_id = statistic_id("abc123", "download")
     upload_id = statistic_id("abc123", "upload")
