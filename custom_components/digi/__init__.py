@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from .const import DOMAIN
 from .coordinator import DigiConfigEntry, DigiCoordinator
 from .scheduler import DATA_SCHEDULER, async_get_scheduler
+from .store import DigiSessionStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,6 +50,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: DigiConfigEntry) -> boo
                 hass.data[DOMAIN].pop(DATA_SCHEDULER, None)
         await coordinator.async_shutdown()
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: DigiConfigEntry) -> None:
+    """Delete the persistent connection-session cache when the entry is removed."""
+    await DigiSessionStore(hass, entry.entry_id).async_remove()
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: DigiConfigEntry) -> None:

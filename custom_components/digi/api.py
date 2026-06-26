@@ -30,6 +30,7 @@ from .const import (
     ADDRESS_CONFIRM_URL,
     ADDRESS_SELECT_URL,
     BASE_URL,
+    CONNECTION_LOGS_URL,
     FIBERLINK_URL,
     INVOICES_URL,
     LOGIN_URL,
@@ -39,7 +40,13 @@ from .const import (
     TWO_FA_VALIDATE_URL,
     USER_AGENT,
 )
-from .models import AddressInvoices, DigiData, InvoiceDetail, InvoiceSummary
+from .models import (
+    AddressInvoices,
+    ConnectionSession,
+    DigiData,
+    InvoiceDetail,
+    InvoiceSummary,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -137,6 +144,23 @@ RE_FIBERLINK_IPV4 = _re_fiberlink_field(r"Adresa\s*IPV4")
 RE_FIBERLINK_IPV6 = _re_fiberlink_field(r"Adresa\s*IPV6")
 # Plan name, e.g. "DIGI Net Business Acces internet 1000 (24 luni)".
 RE_FIBERLINK_PLAN = re.compile(r'mb-20["\']>\s*([^<]+?)\s*</div>', re.I | re.S)
+# The FiberLink username (e.g. "ABCDV000000001") needed to query connection
+# logs; it sits on the "Vizualizare loguri conectare" link as data-user.
+RE_FIBERLINK_USER = re.compile(
+    r'data-user=["\']([^"\']+)["\'][^>]*data-action=["\']netFiberlinkLogs["\']',
+    re.I | re.S,
+)
+
+# Connection-logs table: each session is a row of cells tagged by data-thead.
+RE_LOG_CELL = re.compile(r'data-thead=["\']([^"\']+)["\']>\s*(.*?)\s*</div>', re.I | re.S)
+# Byte units as rendered by Digi ("196.36 GB", "0.00 B", "1.72 TB").
+_LOG_BYTE_UNITS: dict[str, int] = {
+    "B": 1,
+    "KB": 1024,
+    "MB": 1024**2,
+    "GB": 1024**3,
+    "TB": 1024**4,
+}
 
 
 # ── Exceptions ──────────────────────────────────────────────────────────────
@@ -646,19 +670,112 @@ class DigiApiClient:
         return self._parse_internet(html)
 
     def _parse_internet(self, html: str) -> dict[str, Any] | None:
+        # NB: match the FiberLink username on the *raw* html (the data-user
+        # attribute is not HTML-escaped) before unescaping the rest.
+        user_match = RE_FIBERLINK_USER.search(html)
         html = unescape(html)
         ipv4_match = RE_FIBERLINK_IPV4.search(html)
         if ipv4_match is None:
             return None  # no internet service at this address
 
         # The account code ("Cont:") is intentionally not collected — it is a
-        # customer identifier we never use.
+        # customer identifier we never use. The FiberLink username *is* kept,
+        # but only because it is required to query the connection logs; it is
+        # redacted from diagnostics and never surfaced as a sensor attribute.
         plan_match = RE_FIBERLINK_PLAN.search(html)
         return {
             "ipv4": self._clean_text(ipv4_match.group(1)),
             "ipv6": [self._clean_text(v) for v in RE_FIBERLINK_IPV6.findall(html)],
             "plan": self._clean_text(plan_match.group(1)) if plan_match else None,
+            "username": self._clean_text(user_match.group(1)) if user_match else None,
         }
+
+    async def async_fetch_connection_logs(
+        self,
+        address_id: str,
+        username: str,
+        date_from: str,
+        date_to: str,
+    ) -> list[ConnectionSession]:
+        """Fetch FiberLink connection (PPPoE) sessions for a date range.
+
+        ``date_from``/``date_to`` are ``YYYY-MM-DD`` (the format the datepicker
+        actually submits, despite its ``dd/mm/yyyy`` placeholder). Returns the
+        sessions newest-first, or an empty list on error / no data.
+        """
+        try:
+            resp = await self._request(
+                "POST",
+                CONNECTION_LOGS_URL,
+                data={
+                    "address-id": address_id,
+                    "username": username,
+                    "date-from": date_from,
+                    "date-to": date_to,
+                },
+                allow_redirects=True,
+                headers={
+                    "Referer": FIBERLINK_URL,
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                },
+            )
+            html = await self._read_text(resp)
+        except aiohttp.ClientError:
+            return []
+        if resp.status != 200 or "popup-content-error" in html:
+            return []
+        return self._parse_connection_logs(html)
+
+    def _parse_connection_logs(self, html: str) -> list[ConnectionSession]:
+        sessions: list[ConnectionSession] = []
+        # Each session is a ``tbl-row`` block (the header row has no data-thead
+        # cells, so it is naturally skipped).
+        for block in re.split(r'<div class=["\']tbl-row', html):
+            if "data-thead" not in block:
+                continue
+            cells = {
+                self._clean_text(label).lower(): value
+                for label, value in RE_LOG_CELL.findall(block)
+            }
+            if not cells:
+                continue
+            duration = cells.get("durată") or cells.get("durata")
+            sessions.append(
+                ConnectionSession(
+                    connect=self._parse_log_datetime(cells.get("conectare")),
+                    disconnect=self._parse_log_datetime(cells.get("deconectare")),
+                    duration=self._clean_text(duration) if duration else None,
+                    ip=self._clean_text(cells.get("ip", "")) or None,
+                    mac=self._clean_text(cells.get("mac", "")) or None,
+                    download_bytes=self._parse_bytes(cells.get("download")),
+                    upload_bytes=self._parse_bytes(cells.get("upload")),
+                )
+            )
+        return sessions
+
+    @staticmethod
+    def _parse_log_datetime(text: str | None) -> str | None:
+        """Normalise a log timestamp to a naive ISO string, or None."""
+        if not text:
+            return None
+        clean = re.sub(r"\s+", " ", unescape(text)).strip()
+        try:
+            return datetime.strptime(clean, "%Y-%m-%d %H:%M:%S").isoformat()
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _parse_bytes(text: str | None) -> int | None:
+        """Parse a Digi byte amount like '196.36 GB' / '0.00 B' into bytes."""
+        if not text:
+            return None
+        clean = re.sub(r"\s+", " ", unescape(text)).strip()
+        match = re.match(r"([0-9]+(?:[.,][0-9]+)?)\s*([KMGT]?B)\b", clean, re.I)
+        if not match:
+            return None
+        value = float(match.group(1).replace(",", "."))
+        return int(round(value * _LOG_BYTE_UNITS[match.group(2).upper()]))
 
     async def async_fetch_client_code(self) -> str | None:
         """Read the Digi client code ("Cod client") from the account page."""

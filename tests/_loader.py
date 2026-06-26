@@ -39,3 +39,25 @@ def load_api():
     _load("const")
     _load("models")
     return _load("api")
+
+
+def load_store():
+    """Load the pure-logic ``store`` helpers standalone (no Home Assistant).
+
+    ``store`` only imports ``const`` at runtime (its ``Store`` dependency is
+    imported lazily inside the class), so the aggregation helpers load anywhere.
+    """
+    load_api()  # ensures const/models are registered under the shared package
+    pkg_name = "digi_api_under_test"
+    store_name = f"{pkg_name}.store"
+    if store_name in sys.modules:
+        return sys.modules[store_name]
+
+    spec = importlib.util.spec_from_file_location(
+        store_name, os.path.join(_PKG_DIR, "store.py")
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[store_name] = module
+    spec.loader.exec_module(module)
+    return module

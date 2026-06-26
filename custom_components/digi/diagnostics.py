@@ -41,6 +41,12 @@ TO_REDACT_RESULT = {
     "pdf_url",
     "ipv4",
     "ipv6",
+    # FiberLink connection logs: IP/MAC are mildly sensitive. async_redact_data
+    # recurses, so these also cover the nested per-session entries.
+    "ip",
+    "mac",
+    "current_ip",
+    "current_mac",
 }
 
 

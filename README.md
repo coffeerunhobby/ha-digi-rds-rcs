@@ -31,6 +31,8 @@ Assistant.
   existența restanțelor și numărul serviciilor facturate.
 - Senzor opțional pentru IP-ul public al serviciului de internet (dezactivat
   implicit).
+- Senzori opționali de conexiune FiberLink (dezactivați implicit): stare/uptime
+  best-effort și trafic lunar descărcat/încărcat, cu istoric păstrat ~6 luni.
 - Istoric facturi și detalii complete disponibile ca atribute.
 - Interval de actualizare și număr de facturi citite configurabile.
 - Reautentificare automată atunci când sesiunea expiră.
@@ -91,10 +93,23 @@ senzori.
 | Overdue | `yes` / `no` — dacă există sold neachitat |
 | Number of services | Numărul serviciilor facturate |
 | Public IP | IPv4 public al serviciului de internet (doar la adresele cu internet; dezactivat implicit); IPv6 și planul ca atribute |
+| Connection status | Stare conexiune (best-effort) + `connected_since`, ultima conectare/deconectare, reconectări (30z), IP/MAC curent și traficul lunar ca atribute |
+| Connection uptime | Momentul (timestamp) când a început sesiunea curentă — afișat ca „acum X zile” |
+| Data downloaded | Trafic descărcat în luna curentă (GiB); istoricul lunar ca atribut |
+| Data uploaded | Trafic încărcat în luna curentă (GiB); istoricul lunar ca atribut |
 
 Senzorul *Amount due* include atribute detaliate: serviciile facturate,
 numărul facturii, datele de emitere și scadență, statusul, valoarea facturii,
 linkul către PDF, defalcarea pe servicii și istoricul complet al facturilor.
+
+> 🌐 Senzorii de conexiune (status / uptime / trafic) apar **doar la adresele cu
+> FiberLink** și sunt **dezactivați implicit**. Digi expune doar sesiunile
+> încheiate, fără un indicator „online acum”, așa că starea este *best-effort*:
+> se presupune că linia s-a reconectat automat la ultima deconectare. Fiecare
+> actualizare interoghează doar ultimele 30 de zile, dar sesiunile sunt păstrate
+> local ~6 luni, astfel încât graficele lunare de trafic (TX/RX) acoperă mai
+> multe luni fără a solicita repetat site-ul. Traficul unei sesiuni care se
+> întinde pe mai multe luni este distribuit proporțional pe zile.
 
 > ℹ️ `entity_id`-ul folosește **codul de client** și **id-ul de adresă Digi**
 > (de ex. `sensor.digi_123456_11112222_amount_due`). Dacă id-ul de adresă nu

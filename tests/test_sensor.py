@@ -11,8 +11,12 @@ pytest.importorskip("homeassistant")
 from custom_components.digi.const import DOMAIN  # noqa: E402
 from custom_components.digi.sensor import (  # noqa: E402
     ADDRESS_SENSORS,
+    TRAFFIC_SENSORS,
     DigiAddressSensor,
+    DigiConnectionStatusSensor,
+    DigiConnectionUptimeSensor,
     DigiInternetSensor,
+    DigiTrafficSensor,
 )
 
 HASH = "ab12cd34ef56"
@@ -122,3 +126,75 @@ def test_internet_sensor():
     assert attrs["plan"] == "Plan X"
     assert attrs["ipv6"] == ["2001:db8::/64"]
     assert "account" not in attrs
+
+
+def _connection_coordinator() -> SimpleNamespace:
+    return SimpleNamespace(
+        data={
+            "addresses": [
+                {
+                    "address_unique": HASH,
+                    "address": "Strada A",
+                    "connection": {
+                        "status": "online",
+                        "connected_since": "2026-06-22T20:27:37",
+                        "last_connect": "2026-06-13T16:29:12",
+                        "last_disconnect": "2026-06-22T20:27:37",
+                        "last_duration": "219h:58m:25s",
+                        "reconnects": 5,
+                        "uptime_seconds": 315000,
+                        "current_ip": "203.0.113.7",
+                        "current_mac": "AA:BB:CC:DD:EE:FF",
+                        "month_key": "2026-06",
+                        "download_bytes_month": 30 * 1024**3,
+                        "upload_bytes_month": 12 * 1024**3,
+                        "monthly": {
+                            "2026-05": {
+                                "download_bytes": 10 * 1024**3,
+                                "upload_bytes": 4 * 1024**3,
+                            },
+                            "2026-06": {
+                                "download_bytes": 30 * 1024**3,
+                                "upload_bytes": 12 * 1024**3,
+                            },
+                        },
+                        "sessions": [],
+                    },
+                }
+            ]
+        },
+        last_update_success=True,
+    )
+
+
+def test_connection_status_sensor():
+    coordinator = _connection_coordinator()
+    sensor = DigiConnectionStatusSensor(coordinator, _entry("entry_one"), HASH)
+    assert sensor.native_value == "online"
+    assert sensor.entity_id == f"sensor.digi_entry_on_{HASH}_connection_status"
+    assert sensor.entity_registry_enabled_default is False
+    attrs = sensor.extra_state_attributes
+    assert attrs["reconnects_30d"] == 5
+    assert attrs["current_ip"] == "203.0.113.7"
+    assert attrs["monthly_download_gib"] == {"2026-05": 10.0, "2026-06": 30.0}
+
+
+def test_connection_uptime_sensor_is_timezone_aware():
+    coordinator = _connection_coordinator()
+    sensor = DigiConnectionUptimeSensor(coordinator, _entry("entry_one"), HASH)
+    value = sensor.native_value
+    assert value is not None
+    assert value.tzinfo is not None  # HA timestamp sensors must be tz-aware
+    assert value.year == 2026 and value.month == 6 and value.day == 22
+
+
+def test_traffic_sensors_report_gib():
+    coordinator = _connection_coordinator()
+    download = next(d for d in TRAFFIC_SENSORS if d.key == "data_downloaded")
+    sensor = DigiTrafficSensor(coordinator, _entry("entry_one"), HASH, download)
+    assert sensor.native_value == 30.0  # 30 GiB this month
+    assert sensor.entity_id == f"sensor.digi_entry_on_{HASH}_data_downloaded"
+    assert sensor.extra_state_attributes["monthly_gib"] == {
+        "2026-05": 10.0,
+        "2026-06": 30.0,
+    }

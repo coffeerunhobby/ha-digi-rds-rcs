@@ -48,6 +48,18 @@ INVOICES_URL: Final = f"{BASE_URL}/my-account/invoices"
 ACCOUNT_DETAILS_URL: Final = f"{BASE_URL}/my-account/account-details"
 MY_SERVICES_URL: Final = f"{BASE_URL}/my-account/my-services"
 FIBERLINK_URL: Final = f"{BASE_URL}/my-account/my-services/fiberlink"
+# Connection (PPPoE session) logs for a FiberLink line; returns a sessions table.
+CONNECTION_LOGS_URL: Final = f"{BASE_URL}/my-account/my-services/fiberlink-logs-xhr"
+
+# ── Connection-logs cache ───────────────────────────────────────────────────
+# Each poll only queries Digi for the most recent window, but a longer history
+# is kept locally so monthly traffic graphs can span ~6 months without hitting
+# the site repeatedly.
+LOGS_WINDOW_DAYS: Final = 30
+LOGS_RETENTION_DAYS: Final = 190
+# Persistent store (homeassistant.helpers.storage.Store) for the session cache.
+STORAGE_VERSION: Final = 1
+STORAGE_KEY_SESSIONS: Final = f"{DOMAIN}_sessions"
 
 USER_AGENT: Final = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

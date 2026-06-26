@@ -16,15 +16,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from datetime import datetime
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
+    SensorStateClass,
 )
+from homeassistant.const import UnitOfInformation
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTRIBUTION,
@@ -124,6 +129,7 @@ async def async_setup_entry(
     coordinator = config_entry.runtime_data
     known: set[str] = set()
     known_internet: set[str] = set()
+    known_connection: set[str] = set()
 
     @callback
     def _add_new_entities() -> None:
@@ -147,6 +153,26 @@ async def async_setup_entry(
                 known_internet.add(address_unique)
                 entities.append(
                     DigiInternetSensor(coordinator, config_entry, address_unique)
+                )
+            # Connection (uptime / traffic) sensors appear once the FiberLink
+            # logs have been read for an internet address.
+            if address.get("connection") and address_unique not in known_connection:
+                known_connection.add(address_unique)
+                entities.append(
+                    DigiConnectionStatusSensor(
+                        coordinator, config_entry, address_unique
+                    )
+                )
+                entities.append(
+                    DigiConnectionUptimeSensor(
+                        coordinator, config_entry, address_unique
+                    )
+                )
+                entities.extend(
+                    DigiTrafficSensor(
+                        coordinator, config_entry, address_unique, description
+                    )
+                    for description in TRAFFIC_SENSORS
                 )
         if entities:
             async_add_entities(entities)
@@ -290,4 +316,217 @@ class DigiInternetSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
         return {
             "ipv6": internet.get("ipv6") or [],
             "plan": internet.get("plan"),
+        }
+
+
+@dataclass(frozen=True, kw_only=True)
+class DigiTrafficDescription(SensorEntityDescription):
+    """Describes a monthly-traffic sensor (download or upload)."""
+
+    # Key into the coordinator's connection dict for the current month total.
+    current_key: str
+    # Key into each monthly bucket ({"download_bytes"/"upload_bytes"}).
+    monthly_key: str
+
+
+TRAFFIC_SENSORS: tuple[DigiTrafficDescription, ...] = (
+    DigiTrafficDescription(
+        key="data_downloaded",
+        translation_key="data_downloaded",
+        icon="mdi:download-network-outline",
+        current_key="download_bytes_month",
+        monthly_key="download_bytes",
+    ),
+    DigiTrafficDescription(
+        key="data_uploaded",
+        translation_key="data_uploaded",
+        icon="mdi:upload-network-outline",
+        current_key="upload_bytes_month",
+        monthly_key="upload_bytes",
+    ),
+)
+
+
+def _to_gib(num_bytes: Any) -> float:
+    return round((num_bytes or 0) / 1024**3, 2)
+
+
+def _monthly_gib(monthly: dict[str, Any] | None, key: str) -> dict[str, float]:
+    return {month: _to_gib(v.get(key)) for month, v in (monthly or {}).items()}
+
+
+class _DigiConnectionEntity(CoordinatorEntity[DigiCoordinator], SensorEntity):
+    """Base for the opt-in FiberLink connection sensors on an address device.
+
+    Disabled by default: connection logs expose the line's IP/MAC and traffic,
+    so users opt in.
+    """
+
+    _attr_has_entity_name = True
+    _attr_attribution = ATTRIBUTION
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(
+        self,
+        coordinator: DigiCoordinator,
+        config_entry: DigiConfigEntry,
+        address_unique: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._config_entry = config_entry
+        self._address_unique = address_unique
+        self._device_id = f"{config_entry.entry_id}_{address_unique}"
+        self._prefix = (
+            config_entry.data.get(CONF_CLIENT_CODE) or config_entry.entry_id[:8]
+        )
+
+    def _address(self) -> dict[str, Any] | None:
+        for address in (self.coordinator.data or {}).get("addresses", []):
+            if address.get("address_unique") == self._address_unique:
+                return address
+        return None
+
+    @property
+    def _connection(self) -> dict[str, Any] | None:
+        address = self._address()
+        return address.get("connection") if address else None
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._connection is not None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        address = self._address() or {}
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._device_id)},
+            name=address.get("address") or "Adresă Digi",
+            manufacturer=MANUFACTURER,
+            model=MODEL,
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+
+class DigiConnectionStatusSensor(_DigiConnectionEntity):
+    """Best-effort connection status with uptime / stability attributes."""
+
+    _attr_translation_key = "connection_status"
+    _attr_icon = "mdi:lan-connect"
+
+    def __init__(
+        self,
+        coordinator: DigiCoordinator,
+        config_entry: DigiConfigEntry,
+        address_unique: str,
+    ) -> None:
+        super().__init__(coordinator, config_entry, address_unique)
+        self._attr_unique_id = f"{self._device_id}_connection_status"
+        self.entity_id = (
+            f"sensor.{DOMAIN}_{self._prefix}_{address_unique}_connection_status"
+        )
+
+    @property
+    def native_value(self) -> Any:
+        connection = self._connection
+        return connection.get("status") if connection else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        connection = self._connection
+        if connection is None:
+            return None
+        return {
+            "connected_since": connection.get("connected_since"),
+            "last_connect": connection.get("last_connect"),
+            "last_disconnect": connection.get("last_disconnect"),
+            "last_duration": connection.get("last_duration"),
+            "reconnects_30d": connection.get("reconnects"),
+            "current_ip": connection.get("current_ip"),
+            "current_mac": connection.get("current_mac"),
+            "monthly_download_gib": _monthly_gib(
+                connection.get("monthly"), "download_bytes"
+            ),
+            "monthly_upload_gib": _monthly_gib(
+                connection.get("monthly"), "upload_bytes"
+            ),
+            "recent_sessions": connection.get("sessions"),
+        }
+
+
+class DigiConnectionUptimeSensor(_DigiConnectionEntity):
+    """Timestamp the current session started (best-effort "connected since")."""
+
+    _attr_translation_key = "connection_uptime"
+    _attr_icon = "mdi:timer-outline"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(
+        self,
+        coordinator: DigiCoordinator,
+        config_entry: DigiConfigEntry,
+        address_unique: str,
+    ) -> None:
+        super().__init__(coordinator, config_entry, address_unique)
+        self._attr_unique_id = f"{self._device_id}_connection_uptime"
+        self.entity_id = (
+            f"sensor.{DOMAIN}_{self._prefix}_{address_unique}_connection_uptime"
+        )
+
+    @property
+    def native_value(self) -> datetime | None:
+        connection = self._connection
+        if connection is None:
+            return None
+        since = connection.get("connected_since")
+        parsed = dt_util.parse_datetime(since) if since else None
+        if parsed is None:
+            return None
+        # Digi timestamps are naive local time — attach the local zone.
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+        return parsed
+
+
+class DigiTrafficSensor(_DigiConnectionEntity):
+    """Current-month download/upload (GiB), with the monthly history in attrs."""
+
+    entity_description: DigiTrafficDescription
+    _attr_device_class = SensorDeviceClass.DATA_SIZE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfInformation.GIBIBYTES
+    _attr_suggested_display_precision = 2
+
+    def __init__(
+        self,
+        coordinator: DigiCoordinator,
+        config_entry: DigiConfigEntry,
+        address_unique: str,
+        description: DigiTrafficDescription,
+    ) -> None:
+        super().__init__(coordinator, config_entry, address_unique)
+        self.entity_description = description
+        self._attr_translation_key = description.translation_key
+        self._attr_icon = description.icon
+        self._attr_unique_id = f"{self._device_id}_{description.key}"
+        self.entity_id = (
+            f"sensor.{DOMAIN}_{self._prefix}_{address_unique}_{description.key}"
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        connection = self._connection
+        if connection is None:
+            return None
+        return _to_gib(connection.get(self.entity_description.current_key))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        connection = self._connection
+        if connection is None:
+            return None
+        return {
+            "month": connection.get("month_key"),
+            "monthly_gib": _monthly_gib(
+                connection.get("monthly"), self.entity_description.monthly_key
+            ),
         }

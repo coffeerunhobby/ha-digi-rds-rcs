@@ -73,6 +73,70 @@ def test_parse_internet_no_service():
     assert _client()._parse_internet("<html>no internet here</html>") is None
 
 
+_INTERNET_WITH_LOGS_LINK = _INTERNET_HTML + (
+    '<a href="#" class="my-services-config-nav-link" '
+    'data-user="ABCDV000000001" data-action="netFiberlinkLogs">'
+    "Vizualizare loguri conectare</a>"
+)
+
+
+def test_parse_internet_captures_fiberlink_username():
+    info = _client()._parse_internet(_INTERNET_WITH_LOGS_LINK)
+    # The FiberLink username is needed to query the connection logs.
+    assert info["username"] == "ABCDV000000001"
+
+
+# ── Connection (FiberLink) logs ─────────────────────────────────────────────
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("196.36 GB", int(round(196.36 * 1024**3))),
+        ("0.00 B", 0),
+        ("1.00 MB", 1024**2),
+        ("1.72 TB", int(round(1.72 * 1024**4))),
+        ("5,00 GB", int(round(5.0 * 1024**3))),  # comma decimal
+        ("", None),
+        (None, None),
+        ("nonsense", None),
+    ],
+)
+def test_parse_bytes(text, expected):
+    assert DigiApiClient._parse_bytes(text) == expected
+
+
+def test_parse_log_datetime():
+    assert (
+        DigiApiClient._parse_log_datetime("2026-06-13 16:29:12")
+        == "2026-06-13T16:29:12"
+    )
+    assert DigiApiClient._parse_log_datetime("") is None
+    assert DigiApiClient._parse_log_datetime("not a date") is None
+
+
+def test_parse_connection_logs_rows_and_units():
+    sessions = _client()._parse_connection_logs(_read("connection_logs.html"))
+    # The header row is skipped; three session rows remain, newest first.
+    assert len(sessions) == 3
+
+    newest = sessions[0]
+    assert newest.connect == "2026-06-05T12:00:00"
+    assert newest.disconnect == "2026-06-20T08:00:00"
+    assert newest.duration == "359h:00m:00s"
+    assert newest.ip == "203.0.113.7"
+    assert newest.mac == "AA:BB:CC:DD:EE:FF"
+    assert newest.download_bytes == int(round(30.0 * 1024**3))
+    assert newest.upload_bytes == int(round(12.0 * 1024**3))
+
+    # The &colon;/&period; HTML entities Digi emits are decoded.
+    oldest = sessions[2]
+    assert oldest.download_bytes == int(round(5.0 * 1024**2))  # "5.00 MB"
+    assert oldest.upload_bytes == 0  # "0.00 B"
+
+
+def test_parse_connection_logs_empty():
+    assert _client()._parse_connection_logs("<div>no rows</div>") == []
+
+
 def test_client_code_regex():
     html = (
         '<p><strong>Nume: </strong>ION POPESCU</p>'

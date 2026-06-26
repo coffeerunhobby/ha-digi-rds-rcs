@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from dataclasses import asdict
 from datetime import date, timedelta
 from typing import Any
 
@@ -12,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import (
     DigiApiClient,
@@ -28,8 +30,10 @@ from .const import (
     DEFAULT_HISTORY_LIMIT,
     DEFAULT_UPDATE_INTERVAL_HOURS,
     DOMAIN,
+    LOGS_WINDOW_DAYS,
 )
 from .scheduler import DATA_SCHEDULER
+from .store import DigiSessionStore, derive_status, monthly_traffic
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,6 +154,8 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Address-ids known to have no internet service — skipped on later polls.
         self._no_internet_ids: set[str] = set()
         self.api: DigiApiClient | None = None
+        # Persistent ~6-month cache of FiberLink connection sessions.
+        self.session_store: DigiSessionStore | None = None
 
     def settings_changed(self) -> bool:
         """Return True if the tunable settings differ from the running config."""
@@ -223,21 +229,71 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._augment_internet(api, snapshot)
         return snapshot
 
+    async def _ensure_session_store(self) -> DigiSessionStore:
+        if self.session_store is None:
+            self.session_store = DigiSessionStore(self.hass, self.config_entry.entry_id)
+            await self.session_store.async_load()
+        return self.session_store
+
     async def _augment_internet(self, api: DigiApiClient, snapshot: dict[str, Any]) -> None:
-        """Attach internet-service details (IP, plan) to addresses that have it.
+        """Attach internet-service details (IP, plan, connection logs).
 
         Addresses without an internet service are remembered and skipped on later
-        polls, so the only recurring cost is one request per internet address.
+        polls. For addresses that have one, the recurring cost is one request for
+        the IP/plan plus one request for the last ``LOGS_WINDOW_DAYS`` of
+        connection logs, which are merged into the ~6-month session cache.
         """
+        store = await self._ensure_session_store()
+        # Digi reports session timestamps in local (Romania) time; compare them
+        # against a naive local "now" so uptime maths line up.
+        now = dt_util.now().replace(tzinfo=None)
+        today = now.date()
+        date_to = today.strftime("%Y-%m-%d")
+        date_from = (today - timedelta(days=LOGS_WINDOW_DAYS)).strftime("%Y-%m-%d")
+        store_dirty = False
+
         for address in snapshot.get("addresses", []):
             address_id = address.get("address_id")
             if not address_id or address_id in self._no_internet_ids:
                 continue
             info = await api.async_fetch_internet(address_id)
-            if info:
-                address["internet"] = info
-            else:
+            if not info:
                 self._no_internet_ids.add(address_id)
+                continue
+
+            # The FiberLink username is needed only to query the logs; keep it
+            # out of the snapshot the sensors see.
+            username = info.pop("username", None)
+            address["internet"] = info
+
+            if not username:
+                continue
+            address_unique = address["address_unique"]
+            fetched = await api.async_fetch_connection_logs(
+                address_id, username, date_from, date_to
+            )
+            if fetched:
+                sessions = store.update(
+                    address_unique, [asdict(s) for s in fetched], today=today
+                )
+                store_dirty = True
+            else:
+                sessions = store.sessions(address_unique)
+
+            monthly = monthly_traffic(sessions)
+            month_key = now.strftime("%Y-%m")
+            current = monthly.get(month_key, {})
+            address["connection"] = {
+                **derive_status(sessions, now=now),
+                "month_key": month_key,
+                "download_bytes_month": current.get("download_bytes", 0),
+                "upload_bytes_month": current.get("upload_bytes", 0),
+                "monthly": monthly,
+                "sessions": sessions[:50],
+            }
+
+        if store_dirty:
+            await store.async_save()
 
     def _resolve_address_id(self, address: str) -> str | None:
         """Match an invoices-page address to its Digi numeric address-id.

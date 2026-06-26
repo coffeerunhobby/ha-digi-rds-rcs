@@ -50,6 +50,25 @@ class AddressInvoices:
 
 
 @dataclass(slots=True)
+class ConnectionSession:
+    """A single FiberLink connection (PPPoE) session from the logs page.
+
+    Timestamps are naive ISO strings in Digi's local time (Europe/Bucharest);
+    ``connect`` is the stable de-duplication key. ``disconnect`` may be None for
+    a session that is still open (not yet seen in practice — the log only lists
+    completed sessions — but tolerated by the model).
+    """
+
+    connect: str | None
+    disconnect: str | None
+    duration: str | None
+    ip: str | None
+    mac: str | None
+    download_bytes: int | None
+    upload_bytes: int | None
+
+
+@dataclass(slots=True)
 class DigiData:
     """Raw payload returned by the API client after a fetch."""
 
