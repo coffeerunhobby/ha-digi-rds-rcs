@@ -123,6 +123,7 @@ async def async_setup_entry(
     """Set up one device per address, each with its sensors."""
     coordinator = config_entry.runtime_data
     known: set[str] = set()
+    known_internet: set[str] = set()
 
     @callback
     def _add_new_entities() -> None:
@@ -130,13 +131,23 @@ async def async_setup_entry(
         entities: list[SensorEntity] = []
         for address in data.get("addresses", []):
             address_unique = address.get("address_unique")
-            if not address_unique or address_unique in known:
+            if not address_unique:
                 continue
-            known.add(address_unique)
-            entities.extend(
-                DigiAddressSensor(coordinator, config_entry, address_unique, description)
-                for description in ADDRESS_SENSORS
-            )
+            if address_unique not in known:
+                known.add(address_unique)
+                entities.extend(
+                    DigiAddressSensor(
+                        coordinator, config_entry, address_unique, description
+                    )
+                    for description in ADDRESS_SENSORS
+                )
+            # The Public IP sensor only exists for addresses with internet, and
+            # may appear on a later poll than the invoice sensors.
+            if address.get("internet") and address_unique not in known_internet:
+                known_internet.add(address_unique)
+                entities.append(
+                    DigiInternetSensor(coordinator, config_entry, address_unique)
+                )
         if entities:
             async_add_entities(entities)
 
@@ -209,3 +220,74 @@ class DigiAddressSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
         if address is None:
             return None
         return _invoice_attributes(address)
+
+
+class DigiInternetSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
+    """Public IP of the internet service at an address (plan/IPv6 in attrs).
+
+    Disabled by default: the public IP is mildly sensitive, so users opt in.
+    """
+
+    _attr_has_entity_name = True
+    _attr_attribution = ATTRIBUTION
+    _attr_translation_key = "public_ip"
+    _attr_icon = "mdi:ip-network"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(
+        self,
+        coordinator: DigiCoordinator,
+        config_entry: DigiConfigEntry,
+        address_unique: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._config_entry = config_entry
+        self._address_unique = address_unique
+        self._device_id = f"{config_entry.entry_id}_{address_unique}"
+        self._attr_unique_id = f"{self._device_id}_public_ip"
+        prefix = config_entry.data.get(CONF_CLIENT_CODE) or config_entry.entry_id[:8]
+        self.entity_id = f"sensor.{DOMAIN}_{prefix}_{address_unique}_public_ip"
+
+    @property
+    def _internet(self) -> dict[str, Any] | None:
+        for address in (self.coordinator.data or {}).get("addresses", []):
+            if address.get("address_unique") == self._address_unique:
+                return address.get("internet")
+        return None
+
+    @property
+    def available(self) -> bool:
+        return super().available and self._internet is not None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        address = next(
+            (
+                a
+                for a in (self.coordinator.data or {}).get("addresses", [])
+                if a.get("address_unique") == self._address_unique
+            ),
+            {},
+        )
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._device_id)},
+            name=address.get("address") or "Adresă Digi",
+            manufacturer=MANUFACTURER,
+            model=MODEL,
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+    @property
+    def native_value(self) -> Any:
+        internet = self._internet
+        return internet.get("ipv4") if internet else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        internet = self._internet
+        if internet is None:
+            return None
+        return {
+            "ipv6": internet.get("ipv6") or [],
+            "plan": internet.get("plan"),
+        }

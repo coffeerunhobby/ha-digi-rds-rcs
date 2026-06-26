@@ -90,6 +90,7 @@ senzori.
 | Due date | Scadența ultimei facturi |
 | Overdue | `yes` / `no` — dacă există sold neachitat |
 | Number of services | Numărul serviciilor facturate |
+| Public IP | IPv4 public al serviciului de internet (doar la adresele cu internet; dezactivat implicit); IPv6 și planul ca atribute |
 
 Senzorul *Amount due* include atribute detaliate: serviciile facturate,
 numărul facturii, datele de emitere și scadență, statusul, valoarea facturii,

@@ -73,7 +73,8 @@
       "last_invoice": { "name": "Last invoice" },
       "due_date": { "name": "Due date" },
       "overdue": { "name": "Overdue" },
-      "number_of_services": { "name": "Number of services" }
+      "number_of_services": { "name": "Number of services" },
+      "public_ip": { "name": "Public IP" }
     }
   }
 }

@@ -147,6 +147,8 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Cache of paid (immutable) invoice details, reused across polls so we
         # only fetch new/current invoices each time.
         self._detail_cache: dict[str, Any] = {}
+        # Address-ids known to have no internet service — skipped on later polls.
+        self._no_internet_ids: set[str] = set()
         self.api: DigiApiClient | None = None
 
     def settings_changed(self) -> bool:
@@ -217,7 +219,25 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(str(err)) from err
 
         self._persist_cookies()
-        return self._build_snapshot(digi_data)
+        snapshot = self._build_snapshot(digi_data)
+        await self._augment_internet(api, snapshot)
+        return snapshot
+
+    async def _augment_internet(self, api: DigiApiClient, snapshot: dict[str, Any]) -> None:
+        """Attach internet-service details (IP, plan) to addresses that have it.
+
+        Addresses without an internet service are remembered and skipped on later
+        polls, so the only recurring cost is one request per internet address.
+        """
+        for address in snapshot.get("addresses", []):
+            address_id = address.get("address_id")
+            if not address_id or address_id in self._no_internet_ids:
+                continue
+            info = await api.async_fetch_internet(address_id)
+            if info:
+                address["internet"] = info
+            else:
+                self._no_internet_ids.add(address_id)
 
     def _resolve_address_id(self, address: str) -> str | None:
         """Match an invoices-page address to its Digi numeric address-id.
@@ -260,13 +280,11 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # billed at that address (Digi already groups invoices by address).
         for address_key, entry in digi_data.invoices_by_address.items():
             address = entry.address or address_key
-            # Prefer the real Digi numeric address-id (matched by label, or the
-            # 1:1 direct map); fall back to a hash of the address text.
-            address_unique = (
-                self._resolve_address_id(address)
-                or direct_id
-                or _address_hash(address)
-            )
+            # The real Digi numeric address-id (matched by label, or the 1:1
+            # direct map); None if unknown. Needed to query the internet service.
+            address_id = self._resolve_address_id(address) or direct_id
+            # Entity ids use the real id when known, else a hash of the text.
+            address_unique = address_id or _address_hash(address)
 
             items = [item for item in (entry.history or []) if item]
             if not items and entry.latest:
@@ -312,6 +330,7 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             address_rows.append(
                 {
                     "address_unique": address_unique,
+                    "address_id": address_id,
                     "address_key": address_key,
                     "address": address,
                     "service_label": service_label,

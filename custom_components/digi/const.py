@@ -47,6 +47,7 @@ ADDRESS_CONFIRM_URL: Final = f"{BASE_URL}/store/address-confirm-existing"
 INVOICES_URL: Final = f"{BASE_URL}/my-account/invoices"
 ACCOUNT_DETAILS_URL: Final = f"{BASE_URL}/my-account/account-details"
 MY_SERVICES_URL: Final = f"{BASE_URL}/my-account/my-services"
+FIBERLINK_URL: Final = f"{BASE_URL}/my-account/my-services/fiberlink"
 
 USER_AGENT: Final = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

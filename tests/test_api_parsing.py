@@ -47,6 +47,32 @@ def test_clean_text_collapses_whitespace_and_entities():
     assert DigiApiClient._clean_text("  Internet &amp;   TV \n ") == "Internet & TV"
 
 
+_INTERNET_HTML = (
+    '<div class="col-6 mb-20"> Digi Net Example internet 100 (12 luni) </div>'
+    '<p><strong>Cont:</strong></p> </div> '
+    '<div class="col-6 col-end"> <p>ACCT0001</p> </div>'
+    '<p><strong>Adresa IPV4</strong></p> </div> '
+    '<div class="col-6 col-end"> <p>203.0.113.7</p> </div>'
+    '<p><strong>Adresa IPV6</strong></p> </div> '
+    '<div class="col-8 col-end"> <p>2001:db8::/64</p> </div>'
+    '<p><strong>Adresa IPV6</strong></p> </div> '
+    '<div class="col-8 col-end"> <p>2001:db8:1::/56</p> </div>'
+)
+
+
+def test_parse_internet():
+    info = _client()._parse_internet(_INTERNET_HTML)
+    assert info["ipv4"] == "203.0.113.7"
+    assert info["ipv6"] == ["2001:db8::/64", "2001:db8:1::/56"]
+    assert info["plan"] == "Digi Net Example internet 100 (12 luni)"
+    # The account code is intentionally not collected.
+    assert "account" not in info
+
+
+def test_parse_internet_no_service():
+    assert _client()._parse_internet("<html>no internet here</html>") is None
+
+
 def test_client_code_regex():
     html = (
         '<p><strong>Nume: </strong>ION POPESCU</p>'

@@ -12,6 +12,7 @@ from custom_components.digi.const import DOMAIN  # noqa: E402
 from custom_components.digi.sensor import (  # noqa: E402
     ADDRESS_SENSORS,
     DigiAddressSensor,
+    DigiInternetSensor,
 )
 
 HASH = "ab12cd34ef56"
@@ -94,3 +95,30 @@ def test_sensor_values_and_attributes():
     attrs = _sensor("entry_one", "amount_due").extra_state_attributes
     assert attrs["address"] == "Strada A"
     assert _sensor("entry_one", "due_date").extra_state_attributes is None
+
+
+def test_internet_sensor():
+    coordinator = SimpleNamespace(
+        data={
+            "addresses": [
+                {
+                    "address_unique": HASH,
+                    "address": "Strada A",
+                    "internet": {
+                        "ipv4": "203.0.113.7",
+                        "ipv6": ["2001:db8::/64"],
+                        "plan": "Plan X",
+                    },
+                }
+            ]
+        },
+        last_update_success=True,
+    )
+    sensor = DigiInternetSensor(coordinator, _entry("entry_one"), HASH)
+    assert sensor.native_value == "203.0.113.7"
+    assert sensor.entity_id == f"sensor.digi_entry_on_{HASH}_public_ip"
+    assert sensor.entity_registry_enabled_default is False
+    attrs = sensor.extra_state_attributes
+    assert attrs["plan"] == "Plan X"
+    assert attrs["ipv6"] == ["2001:db8::/64"]
+    assert "account" not in attrs

@@ -30,6 +30,7 @@ from .const import (
     ADDRESS_CONFIRM_URL,
     ADDRESS_SELECT_URL,
     BASE_URL,
+    FIBERLINK_URL,
     INVOICES_URL,
     LOGIN_URL,
     MY_SERVICES_URL,
@@ -121,6 +122,21 @@ RE_LABEL_VALUE_TEXT = re.compile(
 )
 # Account-details page: "<strong>Cod client: </strong>123456".
 RE_CLIENT_CODE = re.compile(r"Cod\s*client[^0-9]{0,40}(\d{3,})", re.I | re.S)
+
+
+def _re_fiberlink_field(label: str) -> re.Pattern[str]:
+    """Match a fiberlink label/value pair: <strong>LABEL</strong>…<div…><p>VALUE</p>."""
+    return re.compile(
+        r"<strong>\s*" + label + r"\s*</strong>\s*</p>\s*</div>\s*"
+        r"<div[^>]*>\s*<p>\s*(.*?)\s*</p>",
+        re.I | re.S,
+    )
+
+
+RE_FIBERLINK_IPV4 = _re_fiberlink_field(r"Adresa\s*IPV4")
+RE_FIBERLINK_IPV6 = _re_fiberlink_field(r"Adresa\s*IPV6")
+# Plan name, e.g. "DIGI Net Business Acces internet 1000 (24 luni)".
+RE_FIBERLINK_PLAN = re.compile(r'mb-20["\']>\s*([^<]+?)\s*</div>', re.I | re.S)
 
 
 # ── Exceptions ──────────────────────────────────────────────────────────────
@@ -604,6 +620,45 @@ class DigiApiClient:
             unescape(html), "my-services-address-select"
         )
         return {option.value: option.label for option in options if option.value}
+
+    async def async_fetch_internet(self, address_id: str) -> dict[str, Any] | None:
+        """Read internet-service details (IP, plan) for an address-id.
+
+        Returns None for addresses without an internet (FiberLink) service.
+        """
+        try:
+            resp = await self._request(
+                "POST",
+                FIBERLINK_URL,
+                data={"address-id": address_id},
+                allow_redirects=True,
+                headers={
+                    "Referer": MY_SERVICES_URL,
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                },
+            )
+            html = await self._read_text(resp)
+        except aiohttp.ClientError:
+            return None
+        if resp.status != 200:
+            return None
+        return self._parse_internet(html)
+
+    def _parse_internet(self, html: str) -> dict[str, Any] | None:
+        html = unescape(html)
+        ipv4_match = RE_FIBERLINK_IPV4.search(html)
+        if ipv4_match is None:
+            return None  # no internet service at this address
+
+        # The account code ("Cont:") is intentionally not collected — it is a
+        # customer identifier we never use.
+        plan_match = RE_FIBERLINK_PLAN.search(html)
+        return {
+            "ipv4": self._clean_text(ipv4_match.group(1)),
+            "ipv6": [self._clean_text(v) for v in RE_FIBERLINK_IPV6.findall(html)],
+            "plan": self._clean_text(plan_match.group(1)) if plan_match else None,
+        }
 
     async def async_fetch_client_code(self) -> str | None:
         """Read the Digi client code ("Cod client") from the account page."""

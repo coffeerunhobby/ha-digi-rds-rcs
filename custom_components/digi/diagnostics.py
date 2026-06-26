@@ -31,6 +31,7 @@ TO_REDACT_DATA = {
 TO_REDACT_RESULT = {
     "address",
     "address_key",
+    "address_id",
     "account",
     "account_id",
     "account_label",
@@ -38,6 +39,8 @@ TO_REDACT_RESULT = {
     "id_ultima_factura",
     "last_invoice_id",
     "pdf_url",
+    "ipv4",
+    "ipv6",
 }
 
 
