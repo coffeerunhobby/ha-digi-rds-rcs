@@ -57,7 +57,7 @@ def test_address_is_one_device_with_all_sensors():
     device_ids = {next(iter(s.device_info["identifiers"])) for s in sensors}
     assert device_ids == {(DOMAIN, "entry_one_" + HASH)}
     assert sensors[0].device_info["name"] == "Strada A"
-    assert len(ADDRESS_SENSORS) == 5
+    assert len(ADDRESS_SENSORS) == 6
 
 
 def test_entity_id_uses_hash_not_address():
@@ -89,9 +89,10 @@ def test_ids_are_scoped_per_entry():
 def test_sensor_values_and_attributes():
     assert _sensor("entry_one", "amount_due").native_value == 12.0
     assert _sensor("entry_one", "last_invoice").native_value == 30.0
-    # due_date is a timestamp sensor, so Home Assistant can render it as
-    # "in 3 days" / "5 days ago" rather than a raw DD-MM-YYYY string.
-    due = _sensor("entry_one", "due_date").native_value
+    # due_date keeps Digi's own text for backwards compatibility...
+    assert _sensor("entry_one", "due_date").native_value == "30-06-2026"
+    # ...and the timestamp variant is a separate, tz-aware sensor.
+    due = _sensor("entry_one", "due_date_timestamp").native_value
     assert due.tzinfo is not None
     assert (due.year, due.month, due.day) == (2026, 6, 30)
     assert _sensor("entry_one", "overdue").native_value == "yes"
@@ -192,7 +193,7 @@ def test_due_date_handles_missing_or_malformed_dates():
 
 
 def _sensor_value_for_due(raw):
-    description = next(d for d in ADDRESS_SENSORS if d.key == "due_date")
+    description = next(d for d in ADDRESS_SENSORS if d.key == "due_date_timestamp")
     return description.value_fn({"due_date": raw})
 
 

@@ -12,12 +12,14 @@ which is the native way to make an unpaid balance stand out — an integration
 cannot style text itself. The existing `sensor.*_overdue` (`yes`/`no`) is kept
 for automations.
 
-> ⚠️ **Breaking:** `Due date` is now a **timestamp** sensor instead of a
-> `DD-MM-YYYY` string, so Home Assistant shows it as "in 3 days" / "5 days ago"
-> and an overdue invoice is obvious at a glance. Templates that compared the raw
-> string need updating; the original text is still on the `Amount due` sensor's
-> `due_date` attribute. Its icon also switches to `mdi:calendar-alert` when
-> overdue.
+**New — `Due date (relative)`.** A second, timestamp-typed due-date sensor
+(`sensor.digi_<...>_due_date_timestamp`) that Home Assistant renders as
+"in 3 days" / "5 days ago", so how overdue an invoice is reads at a glance.
+The original `Due date` keeps Digi's `DD-MM-YYYY` text unchanged, so existing
+templates and automations keep working. Both switch to `mdi:calendar-alert`
+while there is an unpaid balance.
+
+*No breaking changes in this release.*
 
 
 **New — FiberLink connection sensors** (per internet address; opt-in, disabled by

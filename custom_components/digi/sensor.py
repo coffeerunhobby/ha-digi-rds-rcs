@@ -124,6 +124,21 @@ ADDRESS_SENSORS: tuple[DigiAddressDescription, ...] = (
         key="due_date",
         translation_key="due_date",
         icon="mdi:calendar-clock",
+        # Kept as Digi's own DD-MM-YYYY text for backwards compatibility with
+        # existing templates and automations. See `due_date_timestamp` for the
+        # machine-readable form.
+        value_fn=lambda a: a.get("due_date"),
+        icon_fn=lambda a: (
+            "mdi:calendar-alert" if a.get("has_arrears") else "mdi:calendar-clock"
+        ),
+    ),
+    DigiAddressDescription(
+        key="due_date_timestamp",
+        translation_key="due_date_timestamp",
+        icon="mdi:calendar-clock",
+        # A real timestamp, so Home Assistant renders it as "in 3 days" /
+        # "5 days ago" — an overdue invoice becomes obvious without any
+        # frontend styling, which an integration cannot control.
         device_class=SensorDeviceClass.TIMESTAMP,
         value_fn=lambda a: _parse_due_datetime(a.get("due_date")),
         icon_fn=lambda a: (

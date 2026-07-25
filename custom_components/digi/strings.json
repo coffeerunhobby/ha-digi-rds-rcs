@@ -78,6 +78,9 @@
       "due_date": {
         "name": "Due date"
       },
+      "due_date_timestamp": {
+        "name": "Due date (relative)"
+      },
       "overdue": {
         "name": "Overdue"
       },
