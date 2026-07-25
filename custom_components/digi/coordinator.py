@@ -367,6 +367,21 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             amount = round(float(latest.get("amount") or 0.0), 2)
 
+            # The next payment deadline: the earliest *unpaid* invoice's due
+            # date, or None once nothing is owed. Reporting the latest invoice's
+            # date regardless of payment made a settled address read as though a
+            # payment were late.
+            dated_unpaid = [
+                (item, _parse_date(item.get("due_date")))
+                for item in unpaid
+                if _parse_date(item.get("due_date"))
+            ]
+            next_due_date = (
+                min(dated_unpaid, key=lambda pair: pair[1])[0].get("due_date")
+                if dated_unpaid
+                else None
+            )
+
             latest_services = latest.get("services") or []
             if isinstance(latest_services, list) and latest_services:
                 services_count = len(latest_services)
@@ -392,6 +407,7 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "amount": amount,
                     "issue_date": latest.get("issue_date"),
                     "due_date": latest.get("due_date"),
+                    "next_due_date": next_due_date,
                     "invoice_number": latest.get("invoice_number")
                     or latest.get("invoice_id"),
                     "status": latest.get("status"),

@@ -35,6 +35,7 @@ def _coordinator() -> SimpleNamespace:
                     "rest": 12.0,
                     "amount": 30.0,
                     "due_date": "30-06-2026",
+                    "next_due_date": "30-06-2026",
                     "has_arrears": True,
                     "services_count": 2,
                     "latest": {},
@@ -194,7 +195,16 @@ def test_due_date_handles_missing_or_malformed_dates():
 
 def _sensor_value_for_due(raw):
     description = next(d for d in ADDRESS_SENSORS if d.key == "due_date_timestamp")
-    return description.value_fn({"due_date": raw})
+    return description.value_fn({"next_due_date": raw})
+
+
+def test_due_dates_are_empty_once_everything_is_paid():
+    # A settled address must not read like a missed payment.
+    paid = {"next_due_date": None, "has_arrears": False}
+    plain = next(d for d in ADDRESS_SENSORS if d.key == "due_date")
+    stamp = next(d for d in ADDRESS_SENSORS if d.key == "due_date_timestamp")
+    assert plain.value_fn(paid) is None
+    assert stamp.value_fn(paid) is None
 
 
 def test_overdue_binary_sensor_is_a_problem_class():
