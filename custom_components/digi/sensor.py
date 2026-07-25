@@ -48,6 +48,29 @@ class DigiAddressDescription(SensorEntityDescription):
 
     value_fn: Callable[[dict[str, Any]], Any]
     with_attributes: bool = False
+    # Optional per-state icon, e.g. to flag an overdue due date.
+    icon_fn: Callable[[dict[str, Any]], str | None] | None = None
+
+
+def _parse_due_datetime(value: Any) -> datetime | None:
+    """Turn Digi's ``DD-MM-YYYY`` due date into a timezone-aware datetime.
+
+    Reported as a ``timestamp`` sensor so Home Assistant renders it natively as
+    "in 3 days" / "5 days ago", which makes an overdue invoice obvious without
+    any frontend styling.
+    """
+    if not value:
+        return None
+    text = str(value).strip().replace(".", "-").replace("/", "-")
+    parts = text.split("-")
+    if len(parts) != 3:
+        return None
+    try:
+        day, month, year = (int(p) for p in parts)
+        naive = datetime(year, month, day)
+    except ValueError:
+        return None
+    return naive.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
 
 
 def _invoice_attributes(address: dict[str, Any]) -> dict[str, Any]:
@@ -101,7 +124,11 @@ ADDRESS_SENSORS: tuple[DigiAddressDescription, ...] = (
         key="due_date",
         translation_key="due_date",
         icon="mdi:calendar-clock",
-        value_fn=lambda a: a.get("due_date"),
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda a: _parse_due_datetime(a.get("due_date")),
+        icon_fn=lambda a: (
+            "mdi:calendar-alert" if a.get("has_arrears") else "mdi:calendar-clock"
+        ),
     ),
     DigiAddressDescription(
         key="overdue",
@@ -230,6 +257,15 @@ class DigiAddressSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
         if address is None:
             return None
         return self.entity_description.value_fn(address)
+
+    @property
+    def icon(self) -> str | None:
+        """Allow the icon to reflect state (e.g. an overdue due date)."""
+        address = self._address
+        icon_fn = self.entity_description.icon_fn
+        if address is not None and icon_fn is not None:
+            return icon_fn(address)
+        return super().icon
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:

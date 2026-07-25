@@ -89,7 +89,11 @@ def test_ids_are_scoped_per_entry():
 def test_sensor_values_and_attributes():
     assert _sensor("entry_one", "amount_due").native_value == 12.0
     assert _sensor("entry_one", "last_invoice").native_value == 30.0
-    assert _sensor("entry_one", "due_date").native_value == "30-06-2026"
+    # due_date is a timestamp sensor, so Home Assistant can render it as
+    # "in 3 days" / "5 days ago" rather than a raw DD-MM-YYYY string.
+    due = _sensor("entry_one", "due_date").native_value
+    assert due.tzinfo is not None
+    assert (due.year, due.month, due.day) == (2026, 6, 30)
     assert _sensor("entry_one", "overdue").native_value == "yes"
     assert _sensor("entry_one", "number_of_services").native_value == 2
 
@@ -172,3 +176,34 @@ def test_connection_uptime_sensor_is_timezone_aware():
     assert value is not None
     assert value.tzinfo is not None  # HA timestamp sensors must be tz-aware
     assert value.year == 2026 and value.month == 6 and value.day == 22
+
+
+def test_due_date_icon_reflects_overdue_state():
+    # An integration cannot colour text, so the icon carries the signal.
+    description = next(d for d in ADDRESS_SENSORS if d.key == "due_date")
+    assert description.icon_fn is not None
+    assert description.icon_fn({"has_arrears": True}) == "mdi:calendar-alert"
+    assert description.icon_fn({"has_arrears": False}) == "mdi:calendar-clock"
+
+
+def test_due_date_handles_missing_or_malformed_dates():
+    for bad in (None, "", "not-a-date", "30-06"):
+        assert _sensor_value_for_due(bad) is None
+
+
+def _sensor_value_for_due(raw):
+    description = next(d for d in ADDRESS_SENSORS if d.key == "due_date")
+    return description.value_fn({"due_date": raw})
+
+
+def test_overdue_binary_sensor_is_a_problem_class():
+    from homeassistant.components.binary_sensor import BinarySensorDeviceClass
+
+    from custom_components.digi.binary_sensor import DigiOverdueBinarySensor
+
+    sensor = DigiOverdueBinarySensor(_coordinator(), _entry("entry_one"), HASH)
+    # device_class "problem" is what makes Home Assistant render it red.
+    assert sensor.device_class == BinarySensorDeviceClass.PROBLEM
+    assert sensor.is_on is True  # fixture has has_arrears=True
+    assert sensor.entity_id == f"binary_sensor.digi_entry_on_{HASH}_overdue"
+    assert sensor.extra_state_attributes["amount_due"] == 12.0

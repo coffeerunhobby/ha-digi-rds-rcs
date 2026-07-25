@@ -5,6 +5,21 @@ the integration's `manifest.json` and the GitHub release tags.
 
 ## v0.4.0 — FiberLink connection insights + native traffic graphs
 
+**New — overdue as a binary sensor.** Each address also gets
+`binary_sensor.digi_<...>_overdue` with device class `problem`. Home Assistant
+renders `problem` entities in red when they are on (with `state_color: true`),
+which is the native way to make an unpaid balance stand out — an integration
+cannot style text itself. The existing `sensor.*_overdue` (`yes`/`no`) is kept
+for automations.
+
+> ⚠️ **Breaking:** `Due date` is now a **timestamp** sensor instead of a
+> `DD-MM-YYYY` string, so Home Assistant shows it as "in 3 days" / "5 days ago"
+> and an overdue invoice is obvious at a glance. Templates that compared the raw
+> string need updating; the original text is still on the `Amount due` sensor's
+> `due_date` attribute. Its icon also switches to `mdi:calendar-alert` when
+> overdue.
+
+
 **New — FiberLink connection sensors** (per internet address; opt-in, disabled by
 default):
 
