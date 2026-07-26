@@ -36,8 +36,10 @@ jobs:
       - name: Install scanners
         run: pip install --quiet bandit ruff
       # Security and correctness rules (flake8-bandit / bugbear / async).
+      # Scoped to the shipped integration: asserts are correct in tests, and
+      # the dev probes run as scripts rather than inside the event loop.
       - name: Ruff
-        run: ruff check .
+        run: ruff check custom_components/
       # Second opinion; medium severity and above fails the build.
       - name: Bandit
         run: bandit -q -r custom_components -ll

@@ -3,6 +3,8 @@
 # Scope is deliberately narrow: this complements hassfest and the test suite by
 # catching security and likely bugs, not by enforcing a formatting style.
 # There are no rule suppressions — findings are fixed rather than silenced.
+# CI runs this against custom_components/ only: tests and the dev probes are not
+# shipped, and their asserts and blocking file I/O are correct in context.
 target-version = "py312"
 
 [lint]
