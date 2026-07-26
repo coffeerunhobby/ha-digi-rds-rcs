@@ -631,7 +631,8 @@ class DigiApiClient:
         Multi-address accounts get this from the login address-select page, but
         single-address accounts never see it — so for them we read the one
         address-id from the `my-services-address-select` dropdown on the
-        my-services page. Returns {} if the dropdown is absent (→ md5 fallback).
+        my-services page. Returns {} if the dropdown is absent, in which case a
+        hash of the address text is used instead.
         """
         try:
             resp = await self._request("GET", MY_SERVICES_URL, allow_redirects=True)

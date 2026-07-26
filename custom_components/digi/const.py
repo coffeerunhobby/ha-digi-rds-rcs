@@ -11,8 +11,8 @@ MODEL: Final = "Digi - cont online"
 ATTRIBUTION: Final = "Date furnizate de www.digi.ro"
 
 # ── Config / option keys ────────────────────────────────────────────────────
-CONF_USERNAME: Final = "username"
-CONF_PASSWORD: Final = "password"  # noqa: S105 — a config key name, not a secret
+# CONF_USERNAME and CONF_PASSWORD come from homeassistant.const; only keys
+# specific to this integration are defined here.
 CONF_COOKIES: Final = "cookies"
 CONF_2FA_METHOD: Final = "twofa_method"
 CONF_2FA_TARGET: Final = "twofa_target"

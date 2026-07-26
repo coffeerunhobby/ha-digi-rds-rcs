@@ -81,19 +81,20 @@ def _service_label(value: str | None) -> str:
 
 
 def _address_hash(address: str) -> str:
-    """A short, address-free identifier for an address (md5 of the text).
+    """A short, stable identifier derived from an address.
 
-    Used for entity/device ids so the readable address is not embedded in
-    entity_ids; the full address is kept as a sensor attribute. md5 (not crc32)
-    to keep collisions negligible.
+    Used for entity and device ids so the readable address is not embedded in
+    entity_ids; the address itself remains the device name and a sensor
+    attribute, so this is an identifier rather than a confidentiality measure.
 
-    ``usedforsecurity=False`` marks this as a plain identifier rather than a
-    security primitive — without it, hashlib refuses md5 on FIPS-enabled
-    systems and setup would fail there.
+    BLAKE2b is used with an explicit 6-byte digest — it is designed to be
+    truncated safely, so the size is requested rather than sliced off a longer
+    hash, and 12 hex characters keep collisions negligible for the handful of
+    addresses an account has.
     """
-    return hashlib.md5(
-        (address or "").encode("utf-8"), usedforsecurity=False
-    ).hexdigest()[:12]
+    return hashlib.blake2b(
+        (address or "").encode("utf-8"), digest_size=6
+    ).hexdigest()
 
 
 def _normalize_address(text: str) -> str:

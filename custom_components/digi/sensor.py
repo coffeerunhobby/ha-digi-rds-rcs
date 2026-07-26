@@ -4,7 +4,7 @@ Layout mirrors the "account → devices" model: the config entry is the Digi
 account (titled by e-mail), and each address is its own device named by the
 address, with a handful of sensors.
 
-The device/entity ids use an md5 hash of the address (never the address text),
+The device/entity ids use a short hash of the address (never the address text),
 so the address is not exposed in entity_ids; it is the device name and a sensor
 attribute instead.
 """
@@ -237,7 +237,7 @@ class DigiAddressSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
         self._device_id = f"{config_entry.entry_id}_{address_unique}"
         self._attr_unique_id = f"{self._device_id}_{description.key}"
         # Entity id: prefix with the Digi client code ("Cod client") when known,
-        # otherwise the entry id; then the md5 address hash (never the address
+        # otherwise the entry id; then the hashed address (never the address
         # text). e.g. sensor.digi_123456_abcdef123456_amount_due
         prefix = config_entry.data.get(CONF_CLIENT_CODE) or config_entry.entry_id[:8]
         self.entity_id = (

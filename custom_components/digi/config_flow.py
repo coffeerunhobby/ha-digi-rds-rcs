@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 import voluptuous as vol
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
@@ -42,11 +43,9 @@ from .const import (
     CONF_CLIENT_CODE,
     CONF_COOKIES,
     CONF_HISTORY_LIMIT,
-    CONF_PASSWORD,
     CONF_SELECTED_ACCOUNT_ID,
     CONF_SELECTED_ACCOUNT_LABEL,
     CONF_UPDATE_INTERVAL,
-    CONF_USERNAME,
     DEFAULT_HISTORY_LIMIT,
     DEFAULT_UPDATE_INTERVAL_HOURS,
     DOMAIN,
@@ -110,6 +109,17 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
         self._address_options: list[AddressOption] = []
         self._reauth_entry_data: dict[str, Any] | None = None
 
+    @property
+    def _client(self) -> DigiApiClient:
+        """The API client, which exists once the login step has run.
+
+        Raises rather than asserting, so the failure is explicit and survives
+        ``python -O``; reaching this without a client would be a coding error.
+        """
+        if self._api is None:
+            raise RuntimeError("Digi client used before the login step ran")
+        return self._api
+
     # ── Entry point ─────────────────────────────────────────────────────────
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -133,7 +143,7 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
         self._api = DigiApiClient(async_get_clientsession(self.hass))
 
         try:
-            final_url, html = await self._api.login(
+            final_url, html = await self._client.login(
                 self._pending[CONF_USERNAME], self._pending[CONF_PASSWORD]
             )
         except DigiAuthError:
@@ -157,11 +167,10 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _async_handle_login_result(
         self, final_url: str, html: str
     ) -> ConfigFlowResult:
-        assert self._api is not None
 
         if "/auth/2fa" in final_url:
             try:
-                self._two_factor = await self._api.get_2fa_context(html)
+                self._two_factor = await self._client.get_2fa_context(html)
             except DigiTwoFactorRequired:
                 return self.async_show_form(
                     step_id="user",
@@ -175,11 +184,11 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             # choice, so just confirm the first one to get past Digi's mandatory
             # address-select page — no user prompt. Fall back to a manual choice
             # only if that fails.
-            self._address_options = await self._api.get_address_options(html)
+            self._address_options = await self._client.get_address_options(html)
             target = next((o for o in self._address_options if o.value), None)
             if target is not None:
                 try:
-                    await self._api.confirm_address(target.value)
+                    await self._client.confirm_address(target.value)
                 except DigiAccountSelectionRequired:
                     return await self.async_step_select_account()
 
@@ -219,7 +228,7 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             current_method = str(user_input[CONF_2FA_METHOD])
             target = str(user_input.get(CONF_2FA_TARGET, "") or "").strip()
             try:
-                await self._api.send_2fa_code(
+                await self._client.send_2fa_code(
                     self._two_factor, current_method, target or None
                 )
                 self._pending[CONF_2FA_METHOD] = current_method
@@ -269,7 +278,7 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             try:
-                final_url, html = await self._api.validate_2fa_code(
+                final_url, html = await self._client.validate_2fa_code(
                     self._two_factor,
                     self._pending[CONF_2FA_METHOD],
                     str(user_input[CONF_2FA_CODE]),
@@ -304,7 +313,7 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             account_id = str(user_input[CONF_SELECTED_ACCOUNT_ID])
             try:
-                await self._api.confirm_address(account_id)
+                await self._client.confirm_address(account_id)
                 selected = next(
                     (o for o in self._address_options if o.value == account_id), None
                 )
@@ -336,7 +345,6 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
 
     # ── Finalize ────────────────────────────────────────────────────────────
     def _build_entry_data(self) -> dict[str, Any]:
-        assert self._api is not None
         return {
             CONF_USERNAME: self._pending[CONF_USERNAME],
             CONF_PASSWORD: self._pending[CONF_PASSWORD],
@@ -348,18 +356,17 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_SELECTED_ACCOUNT_LABEL: self._pending.get(
                 CONF_SELECTED_ACCOUNT_LABEL
             ),
-            CONF_COOKIES: self._api.export_cookies(),
+            CONF_COOKIES: self._client.export_cookies(),
         }
 
     async def _async_finish(self) -> ConfigFlowResult:
-        assert self._api is not None
         # One entry per Digi login; all of its addresses appear as devices.
         email = self._pending[CONF_USERNAME]
         unique_id = email.lower()
 
         # Read the Digi client code ("Cod client") once; it prefixes entity_ids.
         try:
-            self._pending[CONF_CLIENT_CODE] = await self._api.async_fetch_client_code()
+            self._pending[CONF_CLIENT_CODE] = await self._client.async_fetch_client_code()
         except Exception:  # noqa: BLE001 - best effort, entity_ids fall back
             _LOGGER.debug("Could not read Digi client code")
 
@@ -367,7 +374,7 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
         # present for both single- and multi-address accounts, so this gives the
         # real Digi address-ids regardless of whether the login showed a selector.
         try:
-            self._pending[CONF_ADDRESS_MAP] = await self._api.async_fetch_address_map()
+            self._pending[CONF_ADDRESS_MAP] = await self._client.async_fetch_address_map()
         except Exception:  # noqa: BLE001 - best effort, entity_ids fall back
             _LOGGER.debug("Could not read Digi address map")
 
@@ -425,7 +432,6 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_USERNAME,
                         default=str(existing.get(CONF_USERNAME, "")),
                     ): TextSelector(TextSelectorConfig(type=TextSelectorType.EMAIL)),
                     vol.Required(CONF_PASSWORD): TextSelector(

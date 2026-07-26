@@ -122,7 +122,7 @@ indexarea se face pe **adresă** (nu pe IP, care se schimbă la PPPoE).
 
 > ℹ️ `entity_id`-ul folosește **codul de client** și **id-ul de adresă Digi**
 > (de ex. `sensor.digi_123456_11112222_amount_due`). Dacă id-ul de adresă nu
-> este disponibil, se folosește un hash (md5) al adresei. În niciun caz textul
+> este disponibil, se folosește un hash scurt al adresei. În niciun caz textul
 > adresei nu apare în `entity_id` — adresa rămâne ca nume al dispozitivului și
 > ca atribut. Numele și stările entităților sunt în engleză; dialogurile de
 > configurare sunt în română.

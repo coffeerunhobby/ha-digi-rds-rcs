@@ -21,12 +21,12 @@ from custom_components.digi.api import (  # noqa: E402
     DigiAuthError,
     TwoFactorContext,
 )
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME  # noqa: E402
+
 from custom_components.digi.const import (  # noqa: E402
     CONF_ADDRESS_MAP,
     CONF_HISTORY_LIMIT,
-    CONF_PASSWORD,
     CONF_UPDATE_INTERVAL,
-    CONF_USERNAME,
     DOMAIN,
 )
 

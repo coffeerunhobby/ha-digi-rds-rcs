@@ -5,6 +5,15 @@ the integration's `manifest.json` and the GitHub release tags.
 
 ## v0.4.0 — FiberLink connection insights + native traffic graphs
 
+> ⚠️ **Breaking — entity ids change for addresses without a Digi address-id.**
+> Where the numeric address-id could not be scraped, the fallback identifier was
+> derived with MD5; it now uses BLAKE2b. Those entity ids therefore change once,
+> and any dashboard card, automation or history that referenced them needs
+> updating. Addresses with a real Digi address-id (the common case) are
+> unaffected. The change removes MD5 from the codebase entirely — it was only
+> ever an identifier, never a security measure, but it required a scanner
+> suppression and failed outright on FIPS-enabled systems.
+
 **New — overdue as a binary sensor.** Each address also gets
 `binary_sensor.digi_<...>_overdue` with device class `problem`. Home Assistant
 renders `problem` entities in red when they are on (with `state_color: true`),
@@ -72,7 +81,7 @@ metadata (`has_mean` / `mean_type`).
 
 ## v0.2.2 — Real Digi address-id in entity ids
 
-- Entity ids use the scraped Digi address-id (md5 fallback when unavailable).
+- Entity ids use the scraped Digi address-id (a hash of the address when unavailable).
 
 ## v0.2.0
 

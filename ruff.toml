@@ -1,25 +1,13 @@
-# Security-focused lint configuration.
+# Security and correctness lint for the shipped integration.
 #
 # Scope is deliberately narrow: this complements hassfest and the test suite by
-# catching security and correctness bugs, not by enforcing a formatting style.
+# catching security and likely bugs, not by enforcing a formatting style.
+# There are no rule suppressions — findings are fixed rather than silenced.
 target-version = "py312"
 
 [lint]
 select = [
     "S",      # flake8-bandit — security issues
     "B",      # flake8-bugbear — likely bugs
-    "ASYNC",  # async pitfalls (blocking calls in the event loop)
+    "ASYNC",  # async pitfalls, e.g. blocking calls in the event loop
 ]
-ignore = [
-    # `assert` is used to narrow Optional types for the type checker. Home
-    # Assistant never runs with -O, so the statements are not stripped.
-    "S101",
-]
-
-[lint.per-file-ignores]
-# Asserts are the entire point of a test; test data is synthetic by policy.
-"tests/**" = ["S101", "S105", "S106"]
-# The dev probes are standalone scripts, not Home Assistant code: they run
-# outside the event loop, so blocking file I/O is correct there, and they read
-# credentials from a git-ignored file.
-"tools/**" = ["S101", "S105", "S106", "ASYNC230", "ASYNC240"]

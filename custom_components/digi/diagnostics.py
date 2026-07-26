@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
@@ -11,16 +12,12 @@ from .const import (
     CONF_ADDRESS_MAP,
     CONF_CLIENT_CODE,
     CONF_COOKIES,
-    CONF_PASSWORD,
     CONF_SELECTED_ACCOUNT_ID,
     CONF_SELECTED_ACCOUNT_LABEL,
-    CONF_USERNAME,
 )
 from .coordinator import DigiConfigEntry
 
 TO_REDACT_DATA = {
-    CONF_USERNAME,
-    CONF_PASSWORD,
     CONF_COOKIES,
     CONF_CLIENT_CODE,
     CONF_ADDRESS_MAP,
