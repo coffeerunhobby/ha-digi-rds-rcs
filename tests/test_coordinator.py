@@ -139,7 +139,7 @@ def test_build_snapshot():
     addr = snapshot["addresses"][0]
     assert addr["address"] == "Strada Exemplu 10"
     # Identity is the md5 hash of the address text, not the address itself.
-    assert addr["address_unique"] == hashlib.md5(b"Strada Exemplu 10").hexdigest()[:12]
+    assert addr["address_unique"] == hashlib.md5(b"Strada Exemplu 10", usedforsecurity=False).hexdigest()[:12]
     assert addr["service_label"] == "Internet & TV"
     # Latest invoice (sorted by issue date desc) drives the headline values.
     assert addr["amount"] == 120.0

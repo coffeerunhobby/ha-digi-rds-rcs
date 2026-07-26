@@ -24,3 +24,28 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+
+  security:
+    runs-on: ubuntu-latest
+    name: Security scan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install scanners
+        run: pip install --quiet bandit ruff
+      # Security and correctness rules (flake8-bandit / bugbear / async).
+      - name: Ruff
+        run: ruff check .
+      # Second opinion; medium severity and above fails the build.
+      - name: Bandit
+        run: bandit -q -r custom_components -ll
+      # Catches credentials or tokens committed anywhere in the tree.
+      - name: Secret scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scanners: secret
+          exit-code: "1"
+          severity: HIGH,CRITICAL
