@@ -18,6 +18,10 @@ from .const import (
 from .coordinator import DigiConfigEntry
 
 TO_REDACT_DATA = {
+    # Credentials first: diagnostics downloads are routinely pasted into issue
+    # reports, so the account e-mail and password must never survive one.
+    CONF_USERNAME,
+    CONF_PASSWORD,
     CONF_COOKIES,
     CONF_CLIENT_CODE,
     CONF_ADDRESS_MAP,
@@ -55,7 +59,9 @@ async def async_get_config_entry_diagnostics(
 
     return {
         "entry": {
-            "title": entry.title,
+            # The entry is titled "Digi — <e-mail>", so the title itself is
+            # personal data and cannot be emitted verbatim.
+            "title": "<redacted>",
             "data": async_redact_data(dict(entry.data), TO_REDACT_DATA),
         },
         "coordinator": {
