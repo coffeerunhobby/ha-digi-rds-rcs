@@ -7,9 +7,10 @@ from pathlib import Path
 import aiohttp
 import pytest
 
-from ._loader import load_api
+from ._loader import load_api, load_parser
 
 api = load_api()
+parser = load_parser()
 DigiApiClient = api.DigiApiClient
 
 FIX = Path(__file__).parent / "fixtures"
@@ -40,11 +41,11 @@ def _read(name: str) -> str:
     ],
 )
 def test_parse_money(text, expected):
-    assert DigiApiClient._parse_money(text) == expected
+    assert parser._parse_money(text) == expected
 
 
 def test_clean_text_collapses_whitespace_and_entities():
-    assert DigiApiClient._clean_text("  Internet &amp;   TV \n ") == "Internet & TV"
+    assert parser._clean_text("  Internet &amp;   TV \n ") == "Internet & TV"
 
 
 _INTERNET_HTML = (
@@ -61,7 +62,7 @@ _INTERNET_HTML = (
 
 
 def test_parse_internet():
-    info = _client()._parse_internet(_INTERNET_HTML)
+    info = parser._parse_internet(_INTERNET_HTML)
     assert info["ipv4"] == "203.0.113.7"
     assert info["ipv6"] == ["2001:db8::/64", "2001:db8:1::/56"]
     assert info["plan"] == "Digi Net Example internet 100 (12 luni)"
@@ -70,7 +71,7 @@ def test_parse_internet():
 
 
 def test_parse_internet_no_service():
-    assert _client()._parse_internet("<html>no internet here</html>") is None
+    assert parser._parse_internet("<html>no internet here</html>") is None
 
 
 _INTERNET_WITH_LOGS_LINK = _INTERNET_HTML + (
@@ -81,7 +82,7 @@ _INTERNET_WITH_LOGS_LINK = _INTERNET_HTML + (
 
 
 def test_parse_internet_captures_fiberlink_username():
-    info = _client()._parse_internet(_INTERNET_WITH_LOGS_LINK)
+    info = parser._parse_internet(_INTERNET_WITH_LOGS_LINK)
     # The FiberLink username is needed to query the connection logs.
     assert info["username"] == "ABCDV000000001"
 
@@ -101,20 +102,20 @@ def test_parse_internet_captures_fiberlink_username():
     ],
 )
 def test_parse_bytes(text, expected):
-    assert DigiApiClient._parse_bytes(text) == expected
+    assert parser._parse_bytes(text) == expected
 
 
 def test_parse_log_datetime():
     assert (
-        DigiApiClient._parse_log_datetime("2026-06-13 16:29:12")
+        parser._parse_log_datetime("2026-06-13 16:29:12")
         == "2026-06-13T16:29:12"
     )
-    assert DigiApiClient._parse_log_datetime("") is None
-    assert DigiApiClient._parse_log_datetime("not a date") is None
+    assert parser._parse_log_datetime("") is None
+    assert parser._parse_log_datetime("not a date") is None
 
 
 def test_parse_connection_logs_rows_and_units():
-    sessions = _client()._parse_connection_logs(_read("connection_logs.html"))
+    sessions = parser._parse_connection_logs(_read("connection_logs.html"))
     # The header row is skipped; three session rows remain, newest first.
     assert len(sessions) == 3
 
@@ -134,7 +135,7 @@ def test_parse_connection_logs_rows_and_units():
 
 
 def test_parse_connection_logs_empty():
-    assert _client()._parse_connection_logs("<div>no rows</div>") == []
+    assert parser._parse_connection_logs("<div>no rows</div>") == []
 
 
 def test_client_code_regex():
@@ -142,7 +143,7 @@ def test_client_code_regex():
         '<p><strong>Nume: </strong>ION POPESCU</p>'
         '<p><strong>Cod client: </strong>123456</p>'
     )
-    match = api.RE_CLIENT_CODE.search(html)
+    match = parser.RE_CLIENT_CODE.search(html)
     assert match is not None
     assert match.group(1) == "123456"
 
@@ -161,7 +162,7 @@ async def test_session_pins_browser_user_agent():
 
 # ── Invoice listing page ────────────────────────────────────────────────────
 def test_parse_invoice_page_rows_and_ids():
-    parsed = _client()._parse_invoice_page(_read("invoices_page.html"))
+    parsed = parser._parse_invoice_page(_read("invoices_page.html"))
     rows = parsed["rows"]
     assert len(rows) == 3
 
@@ -221,7 +222,7 @@ def test_select_detail_ids_latest_paid_then_cached():
 
 # ── Invoice detail (current markup with hierarchical services) ──────────────
 def test_parse_invoice_detail_extracts_leaf_services():
-    detail = _client()._parse_invoice_detail(
+    detail = parser._parse_invoice_detail(
         _read("invoice_detail_modern.html"), "500010"
     )
 
@@ -247,7 +248,7 @@ def test_parse_invoice_detail_extracts_leaf_services():
 
 
 def test_parse_invoice_detail_unpaid_without_services():
-    detail = _client()._parse_invoice_detail(
+    detail = parser._parse_invoice_detail(
         _read("invoice_detail_unpaid.html"), "500099"
     )
     assert detail.total == 120.0
@@ -258,7 +259,7 @@ def test_parse_invoice_detail_unpaid_without_services():
 
 # ── 2FA context ─────────────────────────────────────────────────────────────
 def test_parse_2fa_context_detects_sms():
-    methods = _client()._parse_2fa_context(_read("twofa_sms.html"))
+    methods = parser._parse_2fa_context(_read("twofa_sms.html"))
     assert "sms" in methods
     assert methods["sms"]["default_target"] == "0123456789abcdef0123456789abcdef"
     assert methods["sms"]["send_payload"]["action"] == "myAccount2FASend"
@@ -266,7 +267,7 @@ def test_parse_2fa_context_detects_sms():
 
 # ── Address options ─────────────────────────────────────────────────────────
 def test_extract_radio_address_options():
-    options = _client()._extract_radio_options(_read("address_select.html"))
+    options = parser._extract_radio_options(_read("address_select.html"))
     assert [(o.value, o.label) for o in options] == [
         ("address-1", "Strada Exemplu 10, Bucuresti"),
         ("address-2", "Bulevardul Test 5, Cluj"),

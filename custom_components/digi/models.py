@@ -77,3 +77,23 @@ class DigiData:
     invoices_by_address: dict[str, AddressInvoices]
     last_update: datetime
     needs_reauth: bool = False
+
+
+# ── Auth-flow value objects ─────────────────────────────
+@dataclass(slots=True)
+class TwoFactorOption:
+    value: str
+    label: str
+
+
+@dataclass(slots=True)
+class TwoFactorContext:
+    methods: dict[str, dict[str, Any]]
+    html: str
+    selections: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class AddressOption:
+    value: str
+    label: str

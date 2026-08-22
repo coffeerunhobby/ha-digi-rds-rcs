@@ -57,10 +57,15 @@ def _load_digi_package() -> types.ModuleType:
 
     _load("const")
     _load("models")
+    _load("dates")
+    _load("exceptions")
+    _load("parser")
     return _load("api")
 
 
 api = _load_digi_package()
+# Parsing moved out of the client; diag inspects it directly.
+parser = sys.modules["digiprobe.parser"]
 
 
 def _read_creds() -> dict[str, str]:
@@ -254,13 +259,13 @@ async def _cmd_diag(history_limit: int) -> None:
             ):
                 print(f"  contains {needle!r}: {html.count(needle)}")
 
-            current_rows = len(api.RE_CURRENT_ROW.findall(html))
-            archive_rows = len(api.RE_ROW.findall(html))
+            current_rows = len(parser.RE_CURRENT_ROW.findall(html))
+            archive_rows = len(parser.RE_ROW.findall(html))
             print(f"  RE_CURRENT_ROW matches: {current_rows}")
             print(f"  RE_ROW matches: {archive_rows}")
 
             try:
-                parsed = client._parse_invoice_page(html)
+                parsed = parser._parse_invoice_page(html)
                 print(f"  _parse_invoice_page rows: {len(parsed['rows'])}")
             except Exception as err:  # noqa: BLE001
                 print(f"  _parse_invoice_page raised: {err!r}")

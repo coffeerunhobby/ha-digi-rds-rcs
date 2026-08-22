@@ -15,16 +15,22 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from html import unescape
 from typing import Any
-from urllib.parse import urljoin
 
 import aiohttp
 from yarl import URL
 
+# Re-exported for callers that import them from this module.
+from .exceptions import (  # noqa: F401
+    DigiAccountSelectionRequired,
+    DigiAuthError,
+    DigiError,
+    DigiReauthRequired,
+    DigiTwoFactorError,
+    DigiTwoFactorRequired,
+)
 from .const import (
     ACCOUNT_DETAILS_URL,
     ADDRESS_CONFIRM_URL,
@@ -35,7 +41,6 @@ from .const import (
     INVOICES_URL,
     LOGIN_URL,
     MY_SERVICES_URL,
-    TWO_FA_SEND_URL,
     TWO_FA_URL,
     TWO_FA_VALIDATE_URL,
     USER_AGENT,
@@ -43,170 +48,33 @@ from .const import (
 from .dates import sort_key
 from .models import (
     AddressInvoices,
+    AddressOption,
     ConnectionSession,
     DigiData,
     InvoiceDetail,
     InvoiceSummary,
+    TwoFactorContext,
+)
+from .parser import (
+    RE_ADDRESS_OPTION,
+    RE_CLIENT_CODE,
+    _clean_text,
+    _extract_radio_options,
+    _extract_select_options,
+    _parse_2fa_context,
+    _parse_connection_logs,
+    _parse_internet,
+    _parse_invoice_detail,
+    _parse_invoice_page,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 
-# ── HTML parsing patterns ───────────────────────────────────────────────────
-RE_INPUT_TAG = re.compile(r"<input[^>]*>", re.I | re.S)
-RE_LABEL_FOR = re.compile(
-    r'<label[^>]+for=["\']([^"\']+)["\'][^>]*>(.*?)</label>',
-    re.I | re.S,
-)
-RE_ADDRESS_OPTION = re.compile(
-    r'<option[^>]+id=["\'](address-[^"\']+)["\'][^>]*>(.*?)</option>',
-    re.I | re.S,
-)
-RE_SCRIPT_CFG = re.compile(
-    r'<script[^>]+id=["\']client-invoices-cfg["\'][^>]*>(.*?)</script>',
-    re.I | re.S,
-)
-
-RE_ROW = re.compile(
-    r'<div class=["\']my-account-tbl-row["\'][^>]*data-invoice-address=["\']([^"\']+)["\'][^>]*>\s*'
-    r'<div class=["\']my-account-tbl-col date["\']>\s*(.*?)\s*</div>\s*'
-    r'<div class=["\']my-account-tbl-col description["\']>\s*(.*?)\s*<span>\s*(.*?)\s*</span>\s*</div>\s*'
-    r'<div class=["\']my-account-tbl-col amount["\']>\s*(.*?)\s*</div>',
-    re.I | re.S,
-)
-
-RE_CURRENT_ROW = re.compile(
-    r'<div class=["\']my-account-tbl-row["\'][^>]*data-invoice-address=["\']([^"\']+)["\'][^>]*>\s*'
-    r'<div class=["\']my-account-tbl-col select check["\']>\s*'
-    r'<button[^>]*data-invoices-id=["\'](\d+)["\'][^>]*>.*?</button>\s*</div>\s*'
-    r'<div class=["\']my-account-tbl-col date["\']>\s*(.*?)\s*</div>\s*'
-    r'<div class=["\']my-account-tbl-col description["\']>\s*(.*?)\s*<span>\s*(.*?)\s*</span>\s*</div>\s*'
-    r'<div class=["\']my-account-tbl-col amount["\']>\s*(.*?)\s*</div>',
-    re.I | re.S,
-)
-
-RE_DETAILS_TITLE = re.compile(
-    r"Factura\s+([^<]+?)\s+din data de\s+([0-9.\-/]+)",
-    re.I | re.S,
-)
-RE_PDF = re.compile(
-    r'href=["\']([^"\']*?/my-account/invoices/pdf-download[^"\']+)["\']',
-    re.I,
-)
-# Invoice service rows. Digi renders each billed line as an <h5> header whose
-# text is the service name (prefixed with a hierarchical index such as "1.1"),
-# followed by a <span> holding the price, e.g.:
-#   <h5 class="popup-content-item-header">1.2 Ab. Internet ...
-#       <span class="popup-content-item-price">40.67 LEI</span></h5>
-RE_SERVICE_ROW = re.compile(
-    r'<h5[^>]*class=["\']popup-content-item-header["\'][^>]*>\s*(.*?)'
-    r'<span[^>]*class=["\']popup-content-item-price["\'][^>]*>\s*(.*?)\s*</span>',
-    re.I | re.S,
-)
-# Leading hierarchical index, e.g. "1 ", "1.2 ", "1.10.3 ".
-RE_SERVICE_INDEX = re.compile(r"^\d+(?:\.\d+)*\s+")
-# A sub-item index ("1.1", not the umbrella "1") marks an actual billed service.
-RE_SERVICE_LEAF = re.compile(r"^\d+\.\d+")
-RE_HEX32 = re.compile(r"\b[a-f0-9]{32}\b", re.I)
-RE_PHONE_PARAM = re.compile(
-    r"(?:phone|form-phone-number-confirm|phone-number-confirm)[^a-f0-9]{0,40}([a-f0-9]{32})",
-    re.I | re.S,
-)
-RE_SELECT_BLOCK = re.compile(
-    r'<select[^>]*(?:id|name)=["\']([^"\']+)["\'][^>]*>(.*?)</select>',
-    re.I | re.S,
-)
-RE_OPTION_TAG = re.compile(
-    r'<option[^>]*value=["\']([^"\']*)["\'][^>]*>(.*?)</option>',
-    re.I | re.S,
-)
-RE_LABEL_VALUE_MONEY = re.compile(
-    r">\s*(Total|Rest)\s*<.*?>\s*([0-9]+(?:(?:[.,]|&period;)[0-9]{2})?)\s*LEI",
-    re.I | re.S,
-)
-RE_LABEL_VALUE_TEXT = re.compile(
-    r">\s*Status\s*<.*?>\s*([^<]+)",
-    re.I | re.S,
-)
-# Account-details page: "<strong>Cod client: </strong>123456".
-RE_CLIENT_CODE = re.compile(r"Cod\s*client[^0-9]{0,40}(\d{3,})", re.I | re.S)
 
 
-def _re_fiberlink_field(label: str) -> re.Pattern[str]:
-    """Match a fiberlink label/value pair: <strong>LABEL</strong>…<div…><p>VALUE</p>."""
-    return re.compile(
-        r"<strong>\s*" + label + r"\s*</strong>\s*</p>\s*</div>\s*"
-        r"<div[^>]*>\s*<p>\s*(.*?)\s*</p>",
-        re.I | re.S,
-    )
 
 
-RE_FIBERLINK_IPV4 = _re_fiberlink_field(r"Adresa\s*IPV4")
-RE_FIBERLINK_IPV6 = _re_fiberlink_field(r"Adresa\s*IPV6")
-# Plan name, e.g. "DIGI Net Business Acces internet 1000 (24 luni)".
-RE_FIBERLINK_PLAN = re.compile(r'mb-20["\']>\s*([^<]+?)\s*</div>', re.I | re.S)
-# The FiberLink username (e.g. "ABCDV000000001") needed to query connection
-# logs; it sits on the "Vizualizare loguri conectare" link as data-user.
-RE_FIBERLINK_USER = re.compile(
-    r'data-user=["\']([^"\']+)["\'][^>]*data-action=["\']netFiberlinkLogs["\']',
-    re.I | re.S,
-)
-
-# Connection-logs table: each session is a row of cells tagged by data-thead.
-RE_LOG_CELL = re.compile(r'data-thead=["\']([^"\']+)["\']>\s*(.*?)\s*</div>', re.I | re.S)
-# Byte units as rendered by Digi ("196.36 GB", "0.00 B", "1.72 TB").
-_LOG_BYTE_UNITS: dict[str, int] = {
-    "B": 1,
-    "KB": 1024,
-    "MB": 1024**2,
-    "GB": 1024**3,
-    "TB": 1024**4,
-}
-
-
-# ── Exceptions ──────────────────────────────────────────────────────────────
-class DigiError(Exception):
-    """Base Digi exception."""
-
-
-class DigiAuthError(DigiError):
-    """Credentials invalid."""
-
-
-class DigiTwoFactorRequired(DigiError):
-    """2FA step required but could not be parsed."""
-
-
-class DigiTwoFactorError(DigiError):
-    """2FA validation failed."""
-
-
-class DigiAccountSelectionRequired(DigiError):
-    """Account / address selection is needed."""
-
-
-class DigiReauthRequired(DigiError):
-    """Saved session expired — re-authentication is required."""
-
-
-# ── Lightweight value objects for the auth flow ─────────────────────────────
-@dataclass(slots=True)
-class TwoFactorOption:
-    value: str
-    label: str
-
-
-@dataclass(slots=True)
-class TwoFactorContext:
-    methods: dict[str, dict[str, Any]]
-    html: str
-    selections: dict[str, str] = field(default_factory=dict)
-
-
-@dataclass(slots=True)
-class AddressOption:
-    value: str
-    label: str
 
 
 class DigiApiClient:
@@ -324,168 +192,17 @@ class DigiApiClient:
             resp = await self._request("GET", TWO_FA_URL, allow_redirects=True)
             html = await self._read_text(resp)
 
-        methods = self._parse_2fa_context(html)
+        methods = _parse_2fa_context(html)
         if not methods:
             _LOGGER.debug("Digi 2FA HTML first 1500 chars: %s", html[:1500])
             raise DigiTwoFactorRequired("Could not parse 2FA page")
 
         return TwoFactorContext(methods=methods, html=html)
 
-    @staticmethod
-    def _parse_attrs(tag: str) -> dict[str, str]:
-        attrs: dict[str, str] = {}
-        pattern = r'(\w+(?:-\w+)*)\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+))'
-        for key, value1, value2, value3 in re.findall(pattern, tag, re.I):
-            attrs[key.lower()] = value1 or value2 or value3 or ""
-        return attrs
 
-    def _extract_hidden_inputs(self, html: str) -> dict[str, str]:
-        hidden: dict[str, str] = {}
-        for tag in RE_INPUT_TAG.findall(html):
-            attrs = self._parse_attrs(tag)
-            if attrs.get("type", "").lower() != "hidden":
-                continue
-            name = attrs.get("name")
-            if name:
-                hidden[name] = attrs.get("value", "")
-        return hidden
 
-    def _extract_select_options(
-        self, html: str, *candidate_names: str
-    ) -> list[TwoFactorOption]:
-        candidates = {name.lower() for name in candidate_names if name}
-        options: list[TwoFactorOption] = []
 
-        for select_name, select_body in RE_SELECT_BLOCK.findall(html):
-            name_l = select_name.lower()
-            if candidates and name_l not in candidates:
-                continue
 
-            for value, label_html in RE_OPTION_TAG.findall(select_body):
-                clean_value = (value or "").strip()
-                clean_label = self._clean_text(label_html)
-                if not clean_value or not clean_label:
-                    continue
-                options.append(TwoFactorOption(value=clean_value, label=clean_label))
-
-        deduped: list[TwoFactorOption] = []
-        seen: set[tuple[str, str]] = set()
-        for option in options:
-            key = (option.value, option.label)
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(option)
-
-        return deduped
-
-    def _extract_radio_options(self, html: str) -> list[AddressOption]:
-        labels = {key: self._clean_text(val) for key, val in RE_LABEL_FOR.findall(html)}
-        options: list[AddressOption] = []
-
-        for tag in RE_INPUT_TAG.findall(html):
-            attrs = self._parse_attrs(tag)
-            if attrs.get("type", "").lower() != "radio":
-                continue
-            input_id = attrs.get("id", "")
-            value = attrs.get("value", "")
-            label = labels.get(input_id, "")
-            if value and label:
-                options.append(AddressOption(value=value, label=label))
-
-        return options
-
-    def _parse_2fa_context(self, html: str) -> dict[str, dict[str, Any]]:
-        methods: dict[str, dict[str, Any]] = {}
-        hidden = self._extract_hidden_inputs(html)
-        html_lower = html.lower()
-
-        phone_value: str | None = None
-
-        for key in (
-            "form-phone-number-confirm",
-            "phone",
-            "phone-number-confirm",
-            "form_phone_number_confirm",
-        ):
-            value = hidden.get(key)
-            if value and RE_HEX32.fullmatch(value):
-                phone_value = value
-                break
-
-        if not phone_value:
-            for key, value in hidden.items():
-                key_l = key.lower()
-                if ("phone" in key_l or "telefon" in key_l) and value and RE_HEX32.fullmatch(value):
-                    phone_value = value
-                    break
-
-        if not phone_value:
-            match = RE_PHONE_PARAM.search(html)
-            if match:
-                phone_value = match.group(1)
-
-        sms_candidates = self._extract_select_options(
-            html,
-            "form-my-account-2fa-send-phone",
-            "phone",
-            "phone-number-confirm",
-            "form-phone-number-confirm",
-        )
-
-        sms_markers = (
-            "trimite sms" in html_lower
-            or "codul primit prin sms" in html_lower
-            or "cod de siguranță prin sms" in html_lower
-            or "cod de siguranta prin sms" in html_lower
-        )
-
-        if not phone_value and sms_markers:
-            tokens = list(dict.fromkeys(RE_HEX32.findall(html)))
-            if len(tokens) == 1:
-                phone_value = tokens[0]
-
-        if phone_value or sms_candidates:
-            sms_method: dict[str, Any] = {
-                "send_url": TWO_FA_SEND_URL,
-                "send_payload": {"action": "myAccount2FASend"},
-                "validate_payload": {"action": "myAccount2FAVerify"},
-            }
-            if phone_value:
-                sms_method["default_target"] = phone_value
-            if sms_candidates:
-                sms_method["target_options"] = [
-                    {"value": option.value, "label": option.label}
-                    for option in sms_candidates
-                ]
-            methods["sms"] = sms_method
-        elif sms_markers:
-            _LOGGER.debug(
-                "Digi 2FA page looks like SMS flow but phone target was not found. "
-                "Hidden keys: %s",
-                list(hidden.keys()),
-            )
-
-        email_candidates = {
-            key: value
-            for key, value in hidden.items()
-            if ("mail" in key.lower() or "email" in key.lower()) and value
-        }
-        if email_candidates:
-            key, value = next(iter(email_candidates.items()))
-            methods["email"] = {
-                "send_url": TWO_FA_SEND_URL,
-                "send_payload": {"action": "myAccount2FASend", key: value},
-                "validate_payload": {"action": "myAccount2FAVerify", key: value},
-            }
-
-        _LOGGER.debug(
-            "Digi 2FA parse: methods=%s hidden_keys=%s",
-            list(methods.keys()),
-            list(hidden.keys()),
-        )
-
-        return methods
 
     async def send_2fa_code(
         self,
@@ -590,11 +307,11 @@ class DigiApiClient:
             resp = await self._request("GET", ADDRESS_SELECT_URL, allow_redirects=True)
             html = await self._read_text(resp)
 
-        options: list[AddressOption] = self._extract_radio_options(html)
+        options: list[AddressOption] = _extract_radio_options(html)
 
         if not options:
             for _, label in RE_ADDRESS_OPTION.findall(html):
-                clean = self._clean_text(label)
+                clean = _clean_text(label)
                 if clean and clean.lower() != "toate adresele":
                     options.append(AddressOption(value="", label=clean))
 
@@ -642,7 +359,7 @@ class DigiApiClient:
             return {}
         if resp.status != 200:
             return {}
-        options = self._extract_select_options(
+        options = _extract_select_options(
             unescape(html), "my-services-address-select"
         )
         return {option.value: option.label for option in options if option.value}
@@ -669,28 +386,8 @@ class DigiApiClient:
             return None
         if resp.status != 200:
             return None
-        return self._parse_internet(html)
+        return _parse_internet(html)
 
-    def _parse_internet(self, html: str) -> dict[str, Any] | None:
-        # NB: match the FiberLink username on the *raw* html (the data-user
-        # attribute is not HTML-escaped) before unescaping the rest.
-        user_match = RE_FIBERLINK_USER.search(html)
-        html = unescape(html)
-        ipv4_match = RE_FIBERLINK_IPV4.search(html)
-        if ipv4_match is None:
-            return None  # no internet service at this address
-
-        # The account code ("Cont:") is intentionally not collected — it is a
-        # customer identifier we never use. The FiberLink username *is* kept,
-        # but only because it is required to query the connection logs; it is
-        # redacted from diagnostics and never surfaced as a sensor attribute.
-        plan_match = RE_FIBERLINK_PLAN.search(html)
-        return {
-            "ipv4": self._clean_text(ipv4_match.group(1)),
-            "ipv6": [self._clean_text(v) for v in RE_FIBERLINK_IPV6.findall(html)],
-            "plan": self._clean_text(plan_match.group(1)) if plan_match else None,
-            "username": self._clean_text(user_match.group(1)) if user_match else None,
-        }
 
     async def async_fetch_connection_logs(
         self,
@@ -727,57 +424,10 @@ class DigiApiClient:
             return []
         if resp.status != 200 or "popup-content-error" in html:
             return []
-        return self._parse_connection_logs(html)
+        return _parse_connection_logs(html)
 
-    def _parse_connection_logs(self, html: str) -> list[ConnectionSession]:
-        sessions: list[ConnectionSession] = []
-        # Each session is a ``tbl-row`` block (the header row has no data-thead
-        # cells, so it is naturally skipped).
-        for block in re.split(r'<div class=["\']tbl-row', html):
-            if "data-thead" not in block:
-                continue
-            cells = {
-                self._clean_text(label).lower(): value
-                for label, value in RE_LOG_CELL.findall(block)
-            }
-            if not cells:
-                continue
-            duration = cells.get("durată") or cells.get("durata")
-            sessions.append(
-                ConnectionSession(
-                    connect=self._parse_log_datetime(cells.get("conectare")),
-                    disconnect=self._parse_log_datetime(cells.get("deconectare")),
-                    duration=self._clean_text(duration) if duration else None,
-                    ip=self._clean_text(cells.get("ip", "")) or None,
-                    mac=self._clean_text(cells.get("mac", "")) or None,
-                    download_bytes=self._parse_bytes(cells.get("download")),
-                    upload_bytes=self._parse_bytes(cells.get("upload")),
-                )
-            )
-        return sessions
 
-    @staticmethod
-    def _parse_log_datetime(text: str | None) -> str | None:
-        """Normalise a log timestamp to a naive ISO string, or None."""
-        if not text:
-            return None
-        clean = re.sub(r"\s+", " ", unescape(text)).strip()
-        try:
-            return datetime.strptime(clean, "%Y-%m-%d %H:%M:%S").isoformat()
-        except ValueError:
-            return None
 
-    @staticmethod
-    def _parse_bytes(text: str | None) -> int | None:
-        """Parse a Digi byte amount like '196.36 GB' / '0.00 B' into bytes."""
-        if not text:
-            return None
-        clean = re.sub(r"\s+", " ", unescape(text)).strip()
-        match = re.match(r"([0-9]+(?:[.,][0-9]+)?)\s*([KMGT]?B)\b", clean, re.I)
-        if not match:
-            return None
-        value = float(match.group(1).replace(",", "."))
-        return int(round(value * _LOG_BYTE_UNITS[match.group(2).upper()]))
 
     async def async_fetch_client_code(self) -> str | None:
         """Read the Digi client code ("Cod client") from the account page."""
@@ -863,7 +513,7 @@ class DigiApiClient:
     ) -> DigiData:
         html = await self._load_invoice_page()
 
-        parsed = self._parse_invoice_page(html)
+        parsed = _parse_invoice_page(html)
         if not parsed["rows"]:
             raise DigiError("No invoices found in Digi page")
 
@@ -964,89 +614,6 @@ class DigiApiClient:
         )
 
     # ── Page parsing ────────────────────────────────────────────────────────
-    def _parse_invoice_page(self, html: str) -> dict[str, Any]:
-        addresses: dict[str, str] = {
-            key: self._clean_text(label)
-            for key, label in RE_ADDRESS_OPTION.findall(html)
-        }
-
-        rows: list[InvoiceSummary] = []
-
-        current_html = self._extract_section(html, "Facturi curente", "Facturi achitate")
-        current_invoice_ids: list[str] = []
-        if current_html:
-            for (
-                address_key,
-                invoice_id,
-                issue_date,
-                description,
-                due_date,
-                amount_text,
-            ) in RE_CURRENT_ROW.findall(current_html):
-                current_invoice_ids.append(str(invoice_id))
-                rows.append(
-                    InvoiceSummary(
-                        invoice_id=str(invoice_id),
-                        address_key=address_key,
-                        address=addresses.get(
-                            address_key,
-                            address_key.replace("address-", "").replace("_", " "),
-                        ),
-                        issue_date=self._clean_text(issue_date),
-                        due_date=self._clean_text(due_date),
-                        description=self._clean_text(description),
-                        amount=self._parse_money(amount_text),
-                        is_current=True,
-                    )
-                )
-
-        archive_html = self._extract_section(html, "Facturi achitate", None)
-
-        cfg_match = RE_SCRIPT_CFG.search(html)
-        archive_ids: list[str] = []
-        if cfg_match:
-            try:
-                cfg = json.loads(unescape(cfg_match.group(1).strip()))
-                all_ids = [str(item["id"]) for item in cfg if item.get("id")]
-
-                # The client-invoices-cfg payload lists both current and paid
-                # invoices. Remove the current invoice ids first so the first
-                # paid invoice does not wrongly inherit a current invoice id.
-                current_ids_remaining = list(current_invoice_ids)
-                for invoice_id in all_ids:
-                    if invoice_id in current_ids_remaining:
-                        current_ids_remaining.remove(invoice_id)
-                        continue
-                    archive_ids.append(invoice_id)
-            except json.JSONDecodeError as err:
-                raise DigiError("Invalid invoice config JSON") from err
-
-        archive_matches = list(RE_ROW.findall(archive_html if archive_html else html))
-
-        for idx, match in enumerate(archive_matches):
-            if idx >= len(archive_ids):
-                break
-
-            address_key, issue_date, description, due_date, amount_text = match
-            rows.append(
-                InvoiceSummary(
-                    invoice_id=archive_ids[idx],
-                    address_key=address_key,
-                    address=addresses.get(
-                        address_key,
-                        address_key.replace("address-", "").replace("_", " "),
-                    ),
-                    issue_date=self._clean_text(issue_date),
-                    due_date=self._clean_text(due_date),
-                    description=self._clean_text(description),
-                    amount=self._parse_money(amount_text),
-                )
-            )
-
-        if not rows:
-            _LOGGER.debug("Digi invoices page parsed but no rows found")
-
-        return {"rows": rows, "addresses": addresses}
 
     async def _fetch_invoice_details(self, invoice_id: str) -> InvoiceDetail:
         payload = {
@@ -1070,109 +637,10 @@ class DigiApiClient:
                 f"Failed to fetch invoice details for {invoice_id}: HTTP {resp.status}"
             )
 
-        return self._parse_invoice_detail(html, invoice_id)
+        return _parse_invoice_detail(html, invoice_id)
 
-    def _parse_invoice_detail(self, html: str, invoice_id: str) -> InvoiceDetail:
-        html_unescaped = unescape(html)
-        title_match = RE_DETAILS_TITLE.search(html_unescaped)
-        pdf_match = RE_PDF.search(html_unescaped)
-
-        money_map = {
-            self._clean_text(label).lower(): self._parse_money(value)
-            for label, value in RE_LABEL_VALUE_MONEY.findall(html)
-        }
-
-        status_match = RE_LABEL_VALUE_TEXT.search(html_unescaped)
-
-        # Collect every line, then prefer the leaf services (indexed "1.1",
-        # "1.2", …) over the umbrella group total (indexed "1"). If the invoice
-        # has no hierarchy, fall back to all rows.
-        raw_rows: list[tuple[str, str]] = []
-        for raw_name, raw_price in RE_SERVICE_ROW.findall(html_unescaped):
-            name = self._clean_text(raw_name)
-            price_text = self._clean_text(raw_price)
-            if name:
-                raw_rows.append((name, price_text))
-
-        leaf_rows = [row for row in raw_rows if RE_SERVICE_LEAF.match(row[0])]
-        chosen_rows = leaf_rows or raw_rows
-
-        services = [
-            {
-                "name": RE_SERVICE_INDEX.sub("", name).strip() or name,
-                "amount": self._parse_money(price_text),
-                "raw_amount": price_text,
-            }
-            for name, price_text in chosen_rows
-        ]
-
-        invoice_number = None
-        issue_date = None
-        if title_match:
-            invoice_number = self._clean_text(title_match.group(1))
-            issue_date = self._clean_text(title_match.group(2))
-
-        if not invoice_number:
-            invoice_number = invoice_id
-
-        return InvoiceDetail(
-            invoice_id=invoice_id,
-            invoice_number=invoice_number,
-            issue_date=issue_date,
-            due_date=None,
-            total=money_map.get("total"),
-            rest=money_map.get("rest"),
-            status=self._clean_text(status_match.group(1)) if status_match else None,
-            pdf_url=urljoin(BASE_URL, unescape(pdf_match.group(1))) if pdf_match else None,
-            services=services,
-        )
 
     # ── Helpers ─────────────────────────────────────────────────────────────
-    @staticmethod
-    def _parse_money(text: str | None) -> float | None:
-        if text is None:
-            return None
-
-        clean = unescape(text).strip()
-        clean = re.sub(r"[^0-9,.\-]", "", clean)
-
-        if not clean:
-            return None
-
-        if "," in clean and "." in clean:
-            if clean.rfind(",") > clean.rfind("."):
-                clean = clean.replace(".", "").replace(",", ".")
-            else:
-                clean = clean.replace(",", "")
-        elif "," in clean:
-            clean = clean.replace(",", ".")
-        elif "." in clean:
-            pass
-        else:
-            try:
-                return int(clean) / 100
-            except ValueError:
-                return None
-
-        try:
-            return float(clean)
-        except ValueError:
-            return None
-
-    @staticmethod
-    def _clean_text(text: str) -> str:
-        return re.sub(r"\s+", " ", unescape(text)).strip()
 
 
-    @staticmethod
-    def _extract_section(html: str, start_marker: str, end_marker: str | None) -> str:
-        start_idx = html.find(start_marker)
-        if start_idx == -1:
-            return ""
 
-        sliced = html[start_idx:]
-        if end_marker:
-            end_idx = sliced.find(end_marker)
-            if end_idx != -1:
-                return sliced[:end_idx]
-        return sliced

@@ -38,6 +38,8 @@ def load_api():
 
     _load("const")
     _load("models")
+    _load("dates")
+    _load("parser")
     return _load("api")
 
 
@@ -61,3 +63,9 @@ def load_store():
     sys.modules[store_name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def load_parser():
+    """Load the standalone HTML parser (no Home Assistant required)."""
+    load_api()  # registers const/models/dates/parser under the shared package
+    return sys.modules["digi_api_under_test.parser"]
