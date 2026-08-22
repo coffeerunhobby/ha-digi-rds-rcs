@@ -270,3 +270,55 @@ async def test_options_flow_updates_settings(hass: HomeAssistant) -> None:
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.data[CONF_UPDATE_INTERVAL] == 12
     assert entry.data[CONF_HISTORY_LIMIT] == 10
+
+
+async def test_reauth_form_renders(hass: HomeAssistant) -> None:
+    """The re-auth form must actually build.
+
+    Regression test: the username key was once dropped from this schema,
+    leaving ``vol.Required(default=...)``. That raises as soon as the form is
+    rendered, so re-authentication was impossible — the one flow a user needs
+    precisely when their password has changed. Asserting on the rendered schema
+    is what catches it; no other test touches this step.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={**_USER_INPUT, "cookies": _COOKIES},
+        unique_id="user@example.com",
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reauth_flow(hass)
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reauth_confirm"
+
+    keys = {str(key) for key in result["data_schema"].schema}
+    assert keys == {CONF_USERNAME, CONF_PASSWORD}
+
+
+async def test_reauth_updates_the_stored_password(hass: HomeAssistant) -> None:
+    """Submitting re-auth replaces the credentials on the existing entry."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={**_USER_INPUT, "cookies": _COOKIES},
+        unique_id="user@example.com",
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reauth_flow(hass)
+
+    with patch(
+        "custom_components.digi.config_flow.DigiApiClient",
+        return_value=_mock_api(),
+    ), patch("custom_components.digi.async_setup_entry", return_value=True):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "new-secret"},
+        )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data[CONF_PASSWORD] == "new-secret"
+    # Settings the re-auth form does not ask about must survive.
+    assert entry.data[CONF_UPDATE_INTERVAL] == _USER_INPUT[CONF_UPDATE_INTERVAL]

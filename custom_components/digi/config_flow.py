@@ -432,6 +432,7 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(
+                        CONF_USERNAME,
                         default=str(existing.get(CONF_USERNAME, "")),
                     ): TextSelector(TextSelectorConfig(type=TextSelectorType.EMAIL)),
                     vol.Required(CONF_PASSWORD): TextSelector(
