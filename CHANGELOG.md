@@ -26,14 +26,18 @@ the integration's `manifest.json` and the GitHub release tags.
 > security fix above asks you to change your password, this had to be fixed in
 > the same release.
 
-**No functional changes.** Sensors, entity ids, attributes and behaviour are
-unchanged. This release is two bug fixes plus internal work to make that class
-of bug harder to reintroduce.
+**New — update your credentials whenever you like.** *Settings → Devices &
+services → Digi → ⋮ → **Reconfigure*** now opens a form for the e-mail and
+password. Previously the only way in was re-authentication, which Home Assistant
+offers only *after* a refresh has already failed — so changing your Digi password
+on purpose meant waiting for the integration to break before you could enter the
+new one. The entry is updated in place, so history, entity ids and your interval
+and history settings all survive. Signing in as a *different* account is refused
+rather than silently repointing every entity at someone else's data.
 
-**Updating your password in Home Assistant.** After changing it on digi.ro, the
-next refresh fails and Home Assistant raises a notification with a **Reconfigure**
-button on the Digi entry under *Settings → Devices & services*; that opens the
-re-auth form. Nothing is lost — history, entity ids and settings all survive.
+**No other functional changes.** Sensors, entity ids, attributes and behaviour
+are unchanged. The rest of this release is two bug fixes plus internal work to
+make that class of bug harder to reintroduce.
 
 **Under the hood.** The internals were reorganised along the seams that were
 already there:

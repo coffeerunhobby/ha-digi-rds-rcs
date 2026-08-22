@@ -40,6 +40,14 @@
           "username": "E-mail",
           "password": "Parolă"
         }
+      },
+      "reconfigure": {
+        "title": "Actualizează datele de autentificare Digi",
+        "description": "Introdu adresa de e-mail și parola curente ale contului tău Digi.",
+        "data": {
+          "username": "E-mail",
+          "password": "Parolă"
+        }
       }
     },
     "error": {
@@ -53,7 +61,9 @@
     "abort": {
       "already_configured": "Acest cont Digi este deja configurat.",
       "reauth_successful": "Reautentificarea a reușit.",
-      "reauth_account_mismatch": "Credențialele sunt pentru un alt cont Digi."
+      "reauth_account_mismatch": "Credențialele sunt pentru un alt cont Digi.",
+      "reconfigure_successful": "Datele de autentificare Digi au fost actualizate.",
+      "reconfigure_account_mismatch": "Aceste date aparțin altui cont Digi. Adaugă-l ca intrare separată."
     }
   },
   "options": {

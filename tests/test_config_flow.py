@@ -322,3 +322,100 @@ async def test_reauth_updates_the_stored_password(hass: HomeAssistant) -> None:
     assert entry.data[CONF_PASSWORD] == "new-secret"
     # Settings the re-auth form does not ask about must survive.
     assert entry.data[CONF_UPDATE_INTERVAL] == _USER_INPUT[CONF_UPDATE_INTERVAL]
+
+
+async def test_reconfigure_form_renders(hass: HomeAssistant) -> None:
+    """The reconfigure form is available on demand, without a prior failure."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={**_USER_INPUT, "cookies": _COOKIES},
+        unique_id="user@example.com",
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    keys = {str(key) for key in result["data_schema"].schema}
+    assert keys == {CONF_USERNAME, CONF_PASSWORD}
+
+
+async def test_reconfigure_updates_credentials_in_place(hass: HomeAssistant) -> None:
+    """The entry is updated, not replaced, so history and entity ids survive."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={**_USER_INPUT, "cookies": _COOKIES},
+        unique_id="user@example.com",
+    )
+    entry.add_to_hass(hass)
+    entry_id = entry.entry_id
+
+    result = await entry.start_reconfigure_flow(hass)
+
+    with patch(
+        "custom_components.digi.config_flow.DigiApiClient",
+        return_value=_mock_api(),
+    ), patch("custom_components.digi.async_setup_entry", return_value=True):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "rotated"},
+        )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_PASSWORD] == "rotated"
+    # Same entry, and the settings the form does not ask about are preserved.
+    assert entry.entry_id == entry_id
+    assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+    assert entry.data[CONF_HISTORY_LIMIT] == _USER_INPUT[CONF_HISTORY_LIMIT]
+
+
+async def test_reconfigure_rejects_a_different_account(hass: HomeAssistant) -> None:
+    """Signing in as someone else would repoint every entity at their data."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={**_USER_INPUT, "cookies": _COOKIES},
+        unique_id="user@example.com",
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+
+    with patch(
+        "custom_components.digi.config_flow.DigiApiClient",
+        return_value=_mock_api(),
+    ), patch("custom_components.digi.async_setup_entry", return_value=True):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_USERNAME: "someone-else@example.com", CONF_PASSWORD: "pw"},
+        )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_account_mismatch"
+    assert entry.data[CONF_USERNAME] == "user@example.com"
+
+
+async def test_reconfigure_redisplays_its_own_form_on_bad_credentials(
+    hass: HomeAssistant,
+) -> None:
+    """A wrong password must not drop the user into the full setup form."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={**_USER_INPUT, "cookies": _COOKIES},
+        unique_id="user@example.com",
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+
+    api = _mock_api(login=AsyncMock(side_effect=DigiAuthError("bad")))
+    with patch("custom_components.digi.config_flow.DigiApiClient", return_value=api):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_USERNAME: "user@example.com", CONF_PASSWORD: "wrong"},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    assert result["errors"] == {"base": "invalid_auth"}

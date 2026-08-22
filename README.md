@@ -73,6 +73,13 @@ dispozitive separate — nu trebuie să le adaugi manual.
 Intervalul de actualizare și numărul de facturi citite pot fi modificate
 ulterior din **Configure** (⚙️), fără a reinstala integrarea.
 
+### Schimbarea parolei
+
+Dacă îți schimbi parola pe digi.ro, actualizeaz-o în Home Assistant din
+**Settings → Devices & Services → Digi → ⋮ → Reconfigure**. Intrarea este
+actualizată pe loc: istoricul, id-urile entităților și setările rămân
+neschimbate. Nu este nevoie să ștergi și să readaugi integrarea.
+
 > Pentru un alt cont Digi, folosește **Add service** și autentifică-te cu
 > celălalt e-mail — fiecare cont primește propria sesiune și propriile adrese.
 

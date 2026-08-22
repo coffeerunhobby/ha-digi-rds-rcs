@@ -40,6 +40,14 @@
           "username": "E-mail",
           "password": "Password"
         }
+      },
+      "reconfigure": {
+        "title": "Update Digi credentials",
+        "description": "Enter the current e-mail and password for your Digi account.",
+        "data": {
+          "username": "E-mail",
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -53,7 +61,9 @@
     "abort": {
       "already_configured": "This Digi account is already configured.",
       "reauth_successful": "Re-authentication was successful.",
-      "reauth_account_mismatch": "The credentials are for a different Digi account."
+      "reauth_account_mismatch": "The credentials are for a different Digi account.",
+      "reconfigure_successful": "Digi credentials updated.",
+      "reconfigure_account_mismatch": "Those credentials are for a different Digi account. Add it as a separate entry instead."
     }
   },
   "options": {

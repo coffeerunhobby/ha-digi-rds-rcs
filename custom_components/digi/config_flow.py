@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
@@ -139,6 +141,32 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=_user_schema(), errors=errors
         )
 
+    def _async_login_error(self, errors: dict[str, str]) -> ConfigFlowResult:
+        """Redisplay whichever form the login was started from.
+
+        The three entry points share this login helper, so a failure has to
+        return to the step the user is actually on — sending someone who is
+        re-entering a password back to the full setup form would ask them to
+        fill in settings their entry already has.
+        """
+        if self.source == SOURCE_RECONFIGURE:
+            return self.async_show_form(
+                step_id="reconfigure",
+                data_schema=self._credentials_schema(self._pending),
+                errors=errors,
+            )
+        if self._reauth_entry_data is not None:
+            return self.async_show_form(
+                step_id="reauth_confirm",
+                data_schema=self._credentials_schema(self._pending),
+                errors=errors,
+            )
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_user_schema(self._pending),
+            errors=errors,
+        )
+
     async def _async_start_login(self, errors: dict[str, str]) -> ConfigFlowResult:
         self._api = DigiApiClient(async_get_clientsession(self.hass))
 
@@ -148,19 +176,11 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             )
         except DigiAuthError:
             errors["base"] = "invalid_auth"
-            return self.async_show_form(
-                step_id="user",
-                data_schema=_user_schema(self._pending),
-                errors=errors,
-            )
+            return self._async_login_error(errors)
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Unexpected error during Digi login")
             errors["base"] = "unknown"
-            return self.async_show_form(
-                step_id="user",
-                data_schema=_user_schema(self._pending),
-                errors=errors,
-            )
+            return self._async_login_error(errors)
 
         return await self._async_handle_login_result(final_url, html)
 
@@ -380,7 +400,18 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
 
         data = self._build_entry_data()
 
-        # Re-authentication: update the existing entry instead of creating one.
+        # Re-auth and reconfigure both update the existing entry in place rather
+        # than creating one, so history and entity ids survive.
+        if self.source == SOURCE_RECONFIGURE:
+            entry = self._get_reconfigure_entry()
+            await self.async_set_unique_id(unique_id)
+            # Signing in as a different account would silently repoint every
+            # entity at someone else's data.
+            self._abort_if_unique_id_mismatch(reason="reconfigure_account_mismatch")
+            return self.async_update_reload_and_abort(
+                entry, data={**entry.data, **data}
+            )
+
         if self._reauth_entry_data is not None:
             entry = self._get_reauth_entry()
             if entry is not None:
@@ -394,7 +425,43 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
         return self.async_create_entry(title=f"Digi — {email}", data=data)
 
-    # ── Reauth ──────────────────────────────────────────────────────────────
+    # ── Re-entering credentials ─────────────────────────────────────────────
+    #
+    # Two ways in, one form. Re-auth is Home Assistant asking after a refresh
+    # already failed; reconfigure is the user opening it themselves from the
+    # entry's menu, before anything breaks. Both replace the credentials on the
+    # existing entry and keep every other setting.
+
+    def _credentials_schema(self, existing: Mapping[str, Any]) -> vol.Schema:
+        return vol.Schema(
+            {
+                vol.Required(
+                    CONF_USERNAME,
+                    default=str(existing.get(CONF_USERNAME, "")),
+                ): TextSelector(TextSelectorConfig(type=TextSelectorType.EMAIL)),
+                vol.Required(CONF_PASSWORD): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                ),
+            }
+        )
+
+    def _pending_from_credentials(
+        self, user_input: Mapping[str, Any], existing: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Carry the settings this form does not ask about over unchanged."""
+        return {
+            CONF_USERNAME: user_input[CONF_USERNAME].strip(),
+            CONF_PASSWORD: user_input[CONF_PASSWORD],
+            CONF_UPDATE_INTERVAL: int(
+                existing.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS)
+            ),
+            CONF_HISTORY_LIMIT: int(
+                existing.get(CONF_HISTORY_LIMIT, DEFAULT_HISTORY_LIMIT)
+            ),
+            CONF_SELECTED_ACCOUNT_ID: existing.get(CONF_SELECTED_ACCOUNT_ID),
+            CONF_SELECTED_ACCOUNT_LABEL: existing.get(CONF_SELECTED_ACCOUNT_LABEL),
+        }
+
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
     ) -> ConfigFlowResult:
@@ -409,37 +476,35 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
         existing = self._reauth_entry_data or (entry.data if entry else {})
 
         if user_input is not None:
-            self._pending = {
-                CONF_USERNAME: user_input[CONF_USERNAME].strip(),
-                CONF_PASSWORD: user_input[CONF_PASSWORD],
-                CONF_UPDATE_INTERVAL: int(
-                    existing.get(
-                        CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS
-                    )
-                ),
-                CONF_HISTORY_LIMIT: int(
-                    existing.get(CONF_HISTORY_LIMIT, DEFAULT_HISTORY_LIMIT)
-                ),
-                CONF_SELECTED_ACCOUNT_ID: existing.get(CONF_SELECTED_ACCOUNT_ID),
-                CONF_SELECTED_ACCOUNT_LABEL: existing.get(
-                    CONF_SELECTED_ACCOUNT_LABEL
-                ),
-            }
+            self._pending = self._pending_from_credentials(user_input, existing)
             return await self._async_start_login(errors)
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(
-                        CONF_USERNAME,
-                        default=str(existing.get(CONF_USERNAME, "")),
-                    ): TextSelector(TextSelectorConfig(type=TextSelectorType.EMAIL)),
-                    vol.Required(CONF_PASSWORD): TextSelector(
-                        TextSelectorConfig(type=TextSelectorType.PASSWORD)
-                    ),
-                }
-            ),
+            data_schema=self._credentials_schema(existing),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Update the credentials on demand, from the entry's ⋮ menu.
+
+        Re-auth only appears once a refresh has already failed, so someone who
+        changes their Digi password deliberately would have to wait for the
+        integration to break before they could enter the new one. This offers
+        the same form at any time.
+        """
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            self._pending = self._pending_from_credentials(user_input, entry.data)
+            return await self._async_start_login(errors)
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self._credentials_schema(entry.data),
             errors=errors,
         )
 
