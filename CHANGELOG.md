@@ -3,6 +3,47 @@
 All notable changes to this integration are documented here. Versions follow
 the integration's `manifest.json` and the GitHub release tags.
 
+## v0.5.0 — Security fix + internal restructuring
+
+> 🔒 **Security — update from v0.4.0.** Downloading diagnostics in v0.4.0
+> produced a file containing the Digi account **e-mail address and password in
+> clear text**, plus the client code and address list. Diagnostics downloads are
+> routinely attached to bug reports, so anyone who did that in v0.4.0 should
+> treat those credentials as exposed and **change the account password**. Fixed
+> here, with a test that fails if any credential ever reaches the output again.
+>
+> The redaction had been correct in earlier releases; a cleanup in v0.4.0 removed
+> the field names from the redaction set by accident. The new test asserts on the
+> *rendered* diagnostics rather than on the list of redacted keys, so the same
+> class of regression cannot pass CI again. That test immediately found a second,
+> older leak: the config entry title (`Digi — <e-mail>`) was emitted verbatim and
+> is now redacted too.
+
+**No functional changes.** Sensors, entity ids, attributes and behaviour are
+unchanged. This release is a security fix plus internal work to make that class
+of bug harder to reintroduce.
+
+**Under the hood.** The internals were reorganised along the seams that were
+already there:
+
+- HTML parsing moved out of the API client into `parser.py`; `api.py` is now
+  transport and session handling only (1194 → 646 lines).
+- Three near-identical date parsers became one `dates.py`.
+- The four platforms share one base entity, so device identity and availability
+  are defined once instead of four times.
+- The coordinator snapshot is described with `TypedDict`s, so the shape entities
+  rely on is checked rather than assumed.
+- `parser.py` and `dates.py` carry no Home Assistant imports, which is what let
+  the release be verified directly against live account data.
+
+**Verification.** Old and new code were run side by side over the same live page:
+29 invoice rows, 2 addresses, invoice detail and 22 helper inputs all byte
+identical. New tests boot the integration inside a real Home Assistant and assert
+on the entities and states that reach the UI, so a future refactor cannot keep
+the unit tests green while breaking setup.
+
+**Full diff:** https://github.com/coffeerunhobby/ha-digi-rds-rcs/compare/v0.4.0...v0.5.0
+
 ## v0.4.0 — FiberLink connection insights + native traffic graphs
 
 > ⚠️ **Breaking — entity ids change for addresses without a Digi address-id.**
