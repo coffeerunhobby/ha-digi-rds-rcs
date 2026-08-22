@@ -14,9 +14,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
-
 from datetime import datetime
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -38,6 +37,7 @@ from .const import (
     MODEL,
 )
 from .coordinator import DigiConfigEntry, DigiCoordinator
+from .dates import parse_date
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,24 +53,19 @@ class DigiAddressDescription(SensorEntityDescription):
 
 
 def _parse_due_datetime(value: Any) -> datetime | None:
-    """Turn Digi's ``DD-MM-YYYY`` due date into a timezone-aware datetime.
+    """Digi's due date as a timezone-aware datetime, or None.
 
-    Reported as a ``timestamp`` sensor so Home Assistant renders it natively as
+    Reported as a ``timestamp`` sensor so Home Assistant renders it as
     "in 3 days" / "5 days ago", which makes an overdue invoice obvious without
-    any frontend styling.
+    any frontend styling. Parsing is shared (see dates.py); only attaching the
+    local timezone is specific to the entity layer.
     """
-    if not value:
+    parsed = parse_date(value)
+    if parsed is None:
         return None
-    text = str(value).strip().replace(".", "-").replace("/", "-")
-    parts = text.split("-")
-    if len(parts) != 3:
-        return None
-    try:
-        day, month, year = (int(p) for p in parts)
-        naive = datetime(year, month, day)
-    except ValueError:
-        return None
-    return naive.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    return datetime(
+        parsed.year, parsed.month, parsed.day, tzinfo=dt_util.DEFAULT_TIME_ZONE
+    )
 
 
 def _invoice_attributes(address: dict[str, Any]) -> dict[str, Any]:

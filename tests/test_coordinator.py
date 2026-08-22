@@ -11,10 +11,10 @@ import pytest
 pytest.importorskip("homeassistant")
 
 from custom_components.digi.const import CONF_ADDRESS_MAP  # noqa: E402
+from custom_components.digi.dates import parse_date  # noqa: E402
 from custom_components.digi.coordinator import (  # noqa: E402
     DigiCoordinator,
     _normalize_address,
-    _parse_date,
     _services_count,
     _service_label,
     _slugify,
@@ -63,11 +63,11 @@ def test_slugify():
 
 
 def test_parse_date():
-    assert _parse_date("05-06-2026") == date(2026, 6, 5)
-    assert _parse_date("05.06.2026") == date(2026, 6, 5)
-    assert _parse_date("05/06/2026") == date(2026, 6, 5)
-    assert _parse_date(None) is None
-    assert _parse_date("not-a-date") is None
+    assert parse_date("05-06-2026") == date(2026, 6, 5)
+    assert parse_date("05.06.2026") == date(2026, 6, 5)
+    assert parse_date("05/06/2026") == date(2026, 6, 5)
+    assert parse_date(None) is None
+    assert parse_date("not-a-date") is None
 
 
 def test_service_label_fallback_is_english():

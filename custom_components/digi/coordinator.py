@@ -32,6 +32,7 @@ from .const import (
     DOMAIN,
     LOGS_WINDOW_DAYS,
 )
+from .dates import parse_date
 from .scheduler import DATA_SCHEDULER
 from .statistics import async_update_traffic_statistics
 from .store import DigiSessionStore, derive_status
@@ -42,20 +43,6 @@ type DigiConfigEntry = ConfigEntry["DigiCoordinator"]
 
 
 # ── Text helpers ────────────────────────────────────────────────────────────
-def _parse_date(value: str | None) -> date | None:
-    if not value:
-        return None
-    text = str(value).strip().replace(".", "-").replace("/", "-")
-    parts = text.split("-")
-    if len(parts) != 3:
-        return None
-    try:
-        day, month, year = [int(p) for p in parts]
-        return date(year, month, day)
-    except ValueError:
-        return None
-
-
 def _slugify(text: str) -> str:
     value = (text or "").lower()
     replacements = {
@@ -354,7 +341,7 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
 
             items.sort(
-                key=lambda x: _parse_date(x.get("issue_date")) or date.min,
+                key=lambda x: parse_date(x.get("issue_date")) or date.min,
                 reverse=True,
             )
             latest = items[0]
@@ -379,9 +366,9 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # date regardless of payment made a settled address read as though a
             # payment were late.
             dated_unpaid = [
-                (item, _parse_date(item.get("due_date")))
+                (item, parse_date(item.get("due_date")))
                 for item in unpaid
-                if _parse_date(item.get("due_date"))
+                if parse_date(item.get("due_date"))
             ]
             next_due_date = (
                 min(dated_unpaid, key=lambda pair: pair[1])[0].get("due_date")

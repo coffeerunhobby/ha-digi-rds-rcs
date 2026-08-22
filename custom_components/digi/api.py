@@ -17,7 +17,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from html import unescape
 from typing import Any
 from urllib.parse import urljoin
@@ -40,6 +40,7 @@ from .const import (
     TWO_FA_VALIDATE_URL,
     USER_AGENT,
 )
+from .dates import sort_key
 from .models import (
     AddressInvoices,
     ConnectionSession,
@@ -848,12 +849,10 @@ class DigiApiClient:
         needed: set[str] = set()
         for bucket in by_address.values():
             latest = max(
-                bucket, key=lambda r: self._parse_date_for_sort(r.issue_date)
+                bucket, key=lambda r: sort_key(r.issue_date)
             )
             for row in bucket:
-                if row.is_current:
-                    needed.add(row.invoice_id)
-                elif row is latest and row.invoice_id not in cached_ids:
+                if row.is_current or row is latest and row.invoice_id not in cached_ids:
                     needed.add(row.invoice_id)
         return needed
 
@@ -937,7 +936,7 @@ class DigiApiClient:
 
         for address_key, items in grouped.items():
             items.sort(
-                key=lambda x: self._parse_date_for_sort(x.get("issue_date")),
+                key=lambda x: sort_key(x.get("issue_date")),
                 reverse=True,
             )
             latest = items[0]
@@ -960,7 +959,7 @@ class DigiApiClient:
             account_label=None,
             account_id=None,
             invoices_by_address=invoices_by_address,
-            last_update=datetime.now(timezone.utc),
+            last_update=datetime.now(UTC),
             needs_reauth=False,
         )
 
@@ -1164,21 +1163,6 @@ class DigiApiClient:
     def _clean_text(text: str) -> str:
         return re.sub(r"\s+", " ", unescape(text)).strip()
 
-    @staticmethod
-    def _parse_date_for_sort(value: str | None) -> datetime:
-        if not value:
-            return datetime.min
-
-        clean = value.strip().replace(".", "-").replace("/", "-")
-        parts = clean.split("-")
-        if len(parts) != 3:
-            return datetime.min
-
-        try:
-            day, month, year = [int(part) for part in parts]
-            return datetime(year, month, day)
-        except ValueError:
-            return datetime.min
 
     @staticmethod
     def _extract_section(html: str, start_marker: str, end_marker: str | None) -> str:
