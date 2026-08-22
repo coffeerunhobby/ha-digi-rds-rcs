@@ -20,9 +20,13 @@ jobs:
             python: "3.12"
             ha: "homeassistant==2024.12.0"
           # Current stable Python; pip resolves the newest HA that supports it.
+          # Home Assistant 2026.3+ requires Python 3.14, so this job is capped
+          # at HA 2026.2. That release's test harness does not constrain
+          # pytest-asyncio, and the 1.x line dropped the implicit event loop,
+          # which breaks every test with "no current event loop".
           - name: "stable — py3.13"
             python: "3.13"
-            ha: ""
+            ha: "'pytest-asyncio<1.0'"
           # Forward compatibility: newest Python + newest Home Assistant.
           - name: "latest — py3.14"
             python: "3.14"
