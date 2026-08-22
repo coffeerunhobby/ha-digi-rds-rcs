@@ -23,21 +23,15 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    ATTRIBUTION,
-    CONF_CLIENT_CODE,
     CURRENCY_RON,
-    DOMAIN,
-    MANUFACTURER,
-    MODEL,
 )
 from .coordinator import DigiConfigEntry, DigiCoordinator
 from .dates import parse_date
+from .entity import DigiAddressEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -211,11 +205,9 @@ async def async_setup_entry(
     config_entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
 
 
-class DigiAddressSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
+class DigiAddressSensor(DigiAddressEntity, SensorEntity):
     """A sensor on an address device."""
 
-    _attr_has_entity_name = True
-    _attr_attribution = ATTRIBUTION
     entity_description: DigiAddressDescription
 
     def __init__(
@@ -225,41 +217,10 @@ class DigiAddressSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
         address_unique: str,
         description: DigiAddressDescription,
     ) -> None:
-        super().__init__(coordinator)
+        super().__init__(coordinator, config_entry, address_unique)
         self.entity_description = description
-        self._config_entry = config_entry
-        self._address_unique = address_unique
-        self._device_id = f"{config_entry.entry_id}_{address_unique}"
         self._attr_unique_id = f"{self._device_id}_{description.key}"
-        # Entity id: prefix with the Digi client code ("Cod client") when known,
-        # otherwise the entry id; then the hashed address (never the address
-        # text). e.g. sensor.digi_123456_abcdef123456_amount_due
-        prefix = config_entry.data.get(CONF_CLIENT_CODE) or config_entry.entry_id[:8]
-        self.entity_id = (
-            f"sensor.{DOMAIN}_{prefix}_{address_unique}_{description.key}"
-        )
-
-    @property
-    def _address(self) -> dict[str, Any] | None:
-        for address in (self.coordinator.data or {}).get("addresses", []):
-            if address.get("address_unique") == self._address_unique:
-                return address
-        return None
-
-    @property
-    def available(self) -> bool:
-        return super().available and self._address is not None
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        address = self._address or {}
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._device_id)},
-            name=address.get("address") or "Adresă Digi",
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            entry_type=DeviceEntryType.SERVICE,
-        )
+        self.entity_id = self._build_entity_id("sensor", description.key)
 
     @property
     def native_value(self) -> Any:
@@ -287,14 +248,12 @@ class DigiAddressSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
         return _invoice_attributes(address)
 
 
-class DigiInternetSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
+class DigiInternetSensor(DigiAddressEntity, SensorEntity):
     """Public IP of the internet service at an address (plan/IPv6 in attrs).
 
     Disabled by default: the public IP is mildly sensitive, so users opt in.
     """
 
-    _attr_has_entity_name = True
-    _attr_attribution = ATTRIBUTION
     _attr_translation_key = "public_ip"
     _attr_icon = "mdi:ip-network"
     _attr_entity_registry_enabled_default = False
@@ -305,42 +264,20 @@ class DigiInternetSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
         config_entry: DigiConfigEntry,
         address_unique: str,
     ) -> None:
-        super().__init__(coordinator)
-        self._config_entry = config_entry
-        self._address_unique = address_unique
-        self._device_id = f"{config_entry.entry_id}_{address_unique}"
+        super().__init__(coordinator, config_entry, address_unique)
         self._attr_unique_id = f"{self._device_id}_public_ip"
-        prefix = config_entry.data.get(CONF_CLIENT_CODE) or config_entry.entry_id[:8]
-        self.entity_id = f"sensor.{DOMAIN}_{prefix}_{address_unique}_public_ip"
+        self.entity_id = self._build_entity_id("sensor", "public_ip")
 
     @property
     def _internet(self) -> dict[str, Any] | None:
-        for address in (self.coordinator.data or {}).get("addresses", []):
-            if address.get("address_unique") == self._address_unique:
-                return address.get("internet")
-        return None
+        address = self._address
+        return address.get("internet") if address else None
 
     @property
     def available(self) -> bool:
+        # Stricter than the base: this entity only exists while the address
+        # actually reports an internet service.
         return super().available and self._internet is not None
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        address = next(
-            (
-                a
-                for a in (self.coordinator.data or {}).get("addresses", [])
-                if a.get("address_unique") == self._address_unique
-            ),
-            {},
-        )
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._device_id)},
-            name=address.get("address") or "Adresă Digi",
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            entry_type=DeviceEntryType.SERVICE,
-        )
 
     @property
     def native_value(self) -> Any:
@@ -358,56 +295,25 @@ class DigiInternetSensor(CoordinatorEntity[DigiCoordinator], SensorEntity):
         }
 
 
-class _DigiConnectionEntity(CoordinatorEntity[DigiCoordinator], SensorEntity):
+class _DigiConnectionEntity(DigiAddressEntity, SensorEntity):
     """Base for the opt-in FiberLink connection sensors on an address device.
 
     Disabled by default: connection logs expose the line's IP/MAC and traffic,
     so users opt in.
     """
 
-    _attr_has_entity_name = True
-    _attr_attribution = ATTRIBUTION
     _attr_entity_registry_enabled_default = False
-
-    def __init__(
-        self,
-        coordinator: DigiCoordinator,
-        config_entry: DigiConfigEntry,
-        address_unique: str,
-    ) -> None:
-        super().__init__(coordinator)
-        self._config_entry = config_entry
-        self._address_unique = address_unique
-        self._device_id = f"{config_entry.entry_id}_{address_unique}"
-        self._prefix = (
-            config_entry.data.get(CONF_CLIENT_CODE) or config_entry.entry_id[:8]
-        )
-
-    def _address(self) -> dict[str, Any] | None:
-        for address in (self.coordinator.data or {}).get("addresses", []):
-            if address.get("address_unique") == self._address_unique:
-                return address
-        return None
 
     @property
     def _connection(self) -> dict[str, Any] | None:
-        address = self._address()
+        address = self._address
         return address.get("connection") if address else None
 
     @property
     def available(self) -> bool:
+        # Stricter than the base: these appear only once the FiberLink logs
+        # have been read for the address.
         return super().available and self._connection is not None
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        address = self._address() or {}
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._device_id)},
-            name=address.get("address") or "Adresă Digi",
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            entry_type=DeviceEntryType.SERVICE,
-        )
 
 
 class DigiConnectionStatusSensor(_DigiConnectionEntity):
@@ -424,9 +330,7 @@ class DigiConnectionStatusSensor(_DigiConnectionEntity):
     ) -> None:
         super().__init__(coordinator, config_entry, address_unique)
         self._attr_unique_id = f"{self._device_id}_connection_status"
-        self.entity_id = (
-            f"sensor.{DOMAIN}_{self._prefix}_{address_unique}_connection_status"
-        )
+        self.entity_id = self._build_entity_id("sensor", "connection_status")
 
     @property
     def native_value(self) -> Any:
@@ -465,9 +369,7 @@ class DigiConnectionUptimeSensor(_DigiConnectionEntity):
     ) -> None:
         super().__init__(coordinator, config_entry, address_unique)
         self._attr_unique_id = f"{self._device_id}_connection_uptime"
-        self.entity_id = (
-            f"sensor.{DOMAIN}_{self._prefix}_{address_unique}_connection_uptime"
-        )
+        self.entity_id = self._build_entity_id("sensor", "connection_uptime")
 
     @property
     def native_value(self) -> datetime | None:

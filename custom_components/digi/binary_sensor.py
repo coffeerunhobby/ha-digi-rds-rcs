@@ -19,12 +19,10 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTRIBUTION, CONF_CLIENT_CODE, DOMAIN, MANUFACTURER, MODEL
 from .coordinator import DigiConfigEntry, DigiCoordinator
+from .entity import DigiAddressEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,11 +54,9 @@ async def async_setup_entry(
     config_entry.async_on_unload(coordinator.async_add_listener(_add_new))
 
 
-class DigiOverdueBinarySensor(CoordinatorEntity[DigiCoordinator], BinarySensorEntity):
+class DigiOverdueBinarySensor(DigiAddressEntity, BinarySensorEntity):
     """True while the address has an unpaid balance."""
 
-    _attr_has_entity_name = True
-    _attr_attribution = ATTRIBUTION
     _attr_translation_key = "overdue"
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
@@ -70,34 +66,9 @@ class DigiOverdueBinarySensor(CoordinatorEntity[DigiCoordinator], BinarySensorEn
         config_entry: DigiConfigEntry,
         address_unique: str,
     ) -> None:
-        super().__init__(coordinator)
-        self._address_unique = address_unique
-        self._device_id = f"{config_entry.entry_id}_{address_unique}"
+        super().__init__(coordinator, config_entry, address_unique)
         self._attr_unique_id = f"{self._device_id}_overdue_problem"
-        prefix = config_entry.data.get(CONF_CLIENT_CODE) or config_entry.entry_id[:8]
-        self.entity_id = f"binary_sensor.{DOMAIN}_{prefix}_{address_unique}_overdue"
-
-    @property
-    def _address(self) -> dict[str, Any] | None:
-        for address in (self.coordinator.data or {}).get("addresses", []):
-            if address.get("address_unique") == self._address_unique:
-                return address
-        return None
-
-    @property
-    def available(self) -> bool:
-        return super().available and self._address is not None
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        address = self._address or {}
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._device_id)},
-            name=address.get("address") or "Adresă Digi",
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            entry_type=DeviceEntryType.SERVICE,
-        )
+        self.entity_id = self._build_entity_id("binary_sensor", "overdue")
 
     @property
     def is_on(self) -> bool | None:
