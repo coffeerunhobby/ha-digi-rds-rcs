@@ -33,6 +33,7 @@ from .const import (
     LOGS_WINDOW_DAYS,
 )
 from .dates import parse_date
+from .models import AddressSnapshot, DigiData, DigiSnapshot
 from .scheduler import DATA_SCHEDULER
 from .statistics import async_update_traffic_statistics
 from .store import DigiSessionStore, derive_status
@@ -115,7 +116,7 @@ def _services_count(latest: dict[str, Any]) -> int:
     return 0
 
 
-class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+class DigiCoordinator(DataUpdateCoordinator[DigiSnapshot]):
     """Fetches the Digi invoices page and transforms it for the sensors."""
 
     config_entry: DigiConfigEntry
@@ -189,7 +190,7 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.api = None
         await super().async_shutdown()
 
-    async def _async_update_data(self) -> dict[str, Any]:
+    async def _async_update_data(self) -> DigiSnapshot:
         # Serialize fetches across all accounts via the shared scheduler lock,
         # so two Digi accounts never hit the site at the same moment.
         scheduler = (self.hass.data.get(DOMAIN) or {}).get(DATA_SCHEDULER)
@@ -198,7 +199,7 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return await self._fetch_and_build()
         return await self._fetch_and_build()
 
-    async def _fetch_and_build(self) -> dict[str, Any]:
+    async def _fetch_and_build(self) -> DigiSnapshot:
         api = self._ensure_api()
 
         cookies = self.config_entry.data.get(CONF_COOKIES) or []
@@ -230,7 +231,9 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.session_store.async_load()
         return self.session_store
 
-    async def _augment_internet(self, api: DigiApiClient, snapshot: dict[str, Any]) -> None:
+    async def _augment_internet(
+        self, api: DigiApiClient, snapshot: DigiSnapshot
+    ) -> None:
         """Attach internet-service details (IP, plan, connection logs).
 
         Addresses without an internet service are remembered and skipped on later
@@ -306,14 +309,14 @@ class DigiCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ]
         return matches[0] if len(matches) == 1 else None
 
-    def _build_snapshot(self, digi_data: Any) -> dict[str, Any]:
+    def _build_snapshot(self, digi_data: DigiData) -> DigiSnapshot:
         account_id = (
             self.config_entry.data.get(CONF_SELECTED_ACCOUNT_ID)
             or digi_data.account_id
             or "digi"
         )
 
-        address_rows: list[dict[str, Any]] = []
+        address_rows: list[AddressSnapshot] = []
 
         # When there is exactly one address and one known address-id, map them
         # directly (single-address accounts), regardless of label formatting.

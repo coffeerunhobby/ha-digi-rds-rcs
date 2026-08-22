@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 
 @dataclass(slots=True)
@@ -97,3 +97,52 @@ class TwoFactorContext:
 class AddressOption:
     value: str
     label: str
+
+
+# ── Coordinator snapshot ────────────────────────────────────────────────────
+# TypedDict rather than a dataclass on purpose: this is what the coordinator
+# hands to the entities, and every sensor reads it with ``.get(...)``. A
+# TypedDict documents and type-checks the shape while remaining an ordinary
+# dict at runtime, so nothing about the data flow changes.
+class AddressSnapshot(TypedDict):
+    """One address as the entities see it."""
+
+    # Identity. ``address_unique`` is the real Digi address-id when known and a
+    # hash of the address text otherwise; it is what entity_ids are keyed on.
+    address_unique: str
+    address_id: str | None
+    address_key: str
+    address: str
+    service_label: str
+
+    # Money. ``rest`` is the outstanding balance, ``amount`` the latest invoice.
+    rest: float
+    amount: float
+
+    # The latest invoice, plus the next deadline that actually matters.
+    issue_date: str | None
+    due_date: str | None
+    next_due_date: str | None
+    invoice_number: str | None
+    status: str | None
+    pdf_url: str | None
+
+    unpaid_count: int
+    has_arrears: bool
+    services_count: int
+    services: list[dict[str, Any]]
+    latest: dict[str, Any]
+    history: list[dict[str, Any]]
+
+    # Added later in the poll, and only for addresses that have the service.
+    internet: NotRequired[dict[str, Any]]
+    connection: NotRequired[dict[str, Any]]
+
+
+class DigiSnapshot(TypedDict):
+    """The full coordinator payload for one Digi account."""
+
+    account_id: str
+    addresses: list[AddressSnapshot]
+    needs_reauth: bool
+    last_update: str | None

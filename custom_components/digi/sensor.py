@@ -32,6 +32,7 @@ from .const import (
 from .coordinator import DigiConfigEntry, DigiCoordinator
 from .dates import parse_date
 from .entity import DigiAddressEntity
+from .models import AddressSnapshot
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,10 +41,10 @@ _LOGGER = logging.getLogger(__name__)
 class DigiAddressDescription(SensorEntityDescription):
     """Describes a sensor on an address device."""
 
-    value_fn: Callable[[dict[str, Any]], Any]
+    value_fn: Callable[[AddressSnapshot], Any]
     with_attributes: bool = False
     # Optional per-state icon, e.g. to flag an overdue due date.
-    icon_fn: Callable[[dict[str, Any]], str | None] | None = None
+    icon_fn: Callable[[AddressSnapshot], str | None] | None = None
 
 
 def _parse_due_datetime(value: Any) -> datetime | None:
@@ -62,7 +63,7 @@ def _parse_due_datetime(value: Any) -> datetime | None:
     )
 
 
-def _invoice_attributes(address: dict[str, Any]) -> dict[str, Any]:
+def _invoice_attributes(address: AddressSnapshot) -> dict[str, Any]:
     latest = address.get("latest") or {}
     return {
         "address": address.get("address"),

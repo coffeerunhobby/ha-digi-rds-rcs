@@ -22,15 +22,6 @@ from typing import Any
 import aiohttp
 from yarl import URL
 
-# Re-exported for callers that import them from this module.
-from .exceptions import (  # noqa: F401
-    DigiAccountSelectionRequired,
-    DigiAuthError,
-    DigiError,
-    DigiReauthRequired,
-    DigiTwoFactorError,
-    DigiTwoFactorRequired,
-)
 from .const import (
     ACCOUNT_DETAILS_URL,
     ADDRESS_CONFIRM_URL,
@@ -46,6 +37,16 @@ from .const import (
     USER_AGENT,
 )
 from .dates import sort_key
+
+# Re-exported for callers that import them from this module.
+from .exceptions import (  # noqa: F401
+    DigiAccountSelectionRequired,
+    DigiAuthError,
+    DigiError,
+    DigiReauthRequired,
+    DigiTwoFactorError,
+    DigiTwoFactorRequired,
+)
 from .models import (
     AddressInvoices,
     AddressOption,

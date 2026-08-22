@@ -12,13 +12,12 @@ and their own ``key``; everything about *which address this is* lives here.
 
 from __future__ import annotations
 
-from typing import Any
-
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import ATTRIBUTION, CONF_CLIENT_CODE, DOMAIN, MANUFACTURER, MODEL
 from .coordinator import DigiConfigEntry, DigiCoordinator
+from .models import AddressSnapshot
 
 
 class DigiAddressEntity(CoordinatorEntity[DigiCoordinator]):
@@ -49,7 +48,7 @@ class DigiAddressEntity(CoordinatorEntity[DigiCoordinator]):
         return f"{platform}.{DOMAIN}_{self._prefix}_{self._address_unique}_{key}"
 
     @property
-    def _address(self) -> dict[str, Any] | None:
+    def _address(self) -> AddressSnapshot | None:
         """This entity's row in the coordinator snapshot, if still present."""
         for address in (self.coordinator.data or {}).get("addresses", []):
             if address.get("address_unique") == self._address_unique:
