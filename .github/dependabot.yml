@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Actions are pinned to commit SHAs in the workflows so a compromised
+  # upstream tag cannot run arbitrary code in CI; Dependabot moves the pins.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
