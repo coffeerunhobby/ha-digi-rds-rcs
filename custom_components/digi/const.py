@@ -60,6 +60,9 @@ LOGS_RETENTION_DAYS: Final = 190
 # Persistent store (homeassistant.helpers.storage.Store) for the session cache.
 STORAGE_VERSION: Final = 1
 STORAGE_KEY_SESSIONS: Final = f"{DOMAIN}_sessions"
+# Fernet key for the credentials at rest; deliberately a separate file from the
+# ciphertext in core.config_entries (see crypto.py).
+STORAGE_KEY_SECRET: Final = f"{DOMAIN}_key"
 
 USER_AGENT: Final = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

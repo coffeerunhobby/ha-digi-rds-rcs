@@ -23,6 +23,7 @@ from custom_components.digi.api import (  # noqa: E402
 )
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME  # noqa: E402
 
+from custom_components.digi.crypto import DigiCipher, is_encrypted  # noqa: E402
 from custom_components.digi.const import (  # noqa: E402
     CONF_ADDRESS_MAP,
     CONF_HISTORY_LIMIT,
@@ -134,7 +135,12 @@ async def test_user_flow_success_without_2fa(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["data"][CONF_USERNAME] == "user@example.com"
-    assert result["data"]["cookies"] == _COOKIES
+    # Stored encrypted, never as exported; the jar must round-trip exactly.
+    stored = result["data"]["cookies"]
+    assert is_encrypted(stored)
+    assert (await DigiCipher.async_load(hass)).decrypt_json(stored) == _COOKIES
+    # The password is used to log in and never persisted.
+    assert CONF_PASSWORD not in result["data"]
     assert result["result"].unique_id == "user@example.com"
 
 
@@ -225,7 +231,9 @@ async def test_second_distinct_account_creates_separate_entry(
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["result"].unique_id == "other@example.com"
     # Each account keeps its own cookie jar in its own entry.
-    assert result["result"].data["cookies"] == _COOKIES
+    stored = result["result"].data["cookies"]
+    assert is_encrypted(stored)
+    assert (await DigiCipher.async_load(hass)).decrypt_json(stored) == _COOKIES
     assert len(hass.config_entries.async_entries(DOMAIN)) == 2
 
 
@@ -319,7 +327,9 @@ async def test_reauth_updates_the_stored_password(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
-    assert entry.data[CONF_PASSWORD] == "new-secret"
+    # The password is used to log in and never persisted; the pre-1.0
+    # plaintext one the entry started with must be gone too.
+    assert CONF_PASSWORD not in entry.data
     # Settings the re-auth form does not ask about must survive.
     assert entry.data[CONF_UPDATE_INTERVAL] == _USER_INPUT[CONF_UPDATE_INTERVAL]
 
@@ -364,7 +374,7 @@ async def test_reconfigure_updates_credentials_in_place(hass: HomeAssistant) -> 
 
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
-    assert entry.data[CONF_PASSWORD] == "rotated"
+    assert CONF_PASSWORD not in entry.data
     # Same entry, and the settings the form does not ask about are preserved.
     assert entry.entry_id == entry_id
     assert len(hass.config_entries.async_entries(DOMAIN)) == 1

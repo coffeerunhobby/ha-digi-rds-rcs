@@ -181,3 +181,27 @@ async def test_unload_is_clean(hass: HomeAssistant, entry: MockConfigEntry):
     await _setup(hass, entry)
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+async def test_a_pre_1_0_entry_is_migrated_on_setup(hass: HomeAssistant, entry):
+    """An entry written by an older version is brought up to date in place.
+
+    The fixture stores a password and a plaintext cookie jar, the way every
+    release before 1.0.0 did. Setup must drop the password (nothing ever read
+    it) and encrypt the jar so nothing reusable sits in core.config_entries —
+    while the jar still round-trips exactly, because a lossy migration would
+    silently log the user out.
+    """
+    from custom_components.digi.crypto import DigiCipher, is_encrypted
+
+    original_cookies = entry.data[CONF_COOKIES]
+    await _setup(hass, entry)
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert CONF_PASSWORD not in entry.data
+    assert "synthetic-password" not in str(entry.data)
+    assert is_encrypted(entry.data[CONF_COOKIES])
+    assert "synthetic" not in entry.data[CONF_COOKIES]
+
+    cipher = await DigiCipher.async_load(hass)
+    assert cipher.decrypt_json(entry.data[CONF_COOKIES]) == original_cookies

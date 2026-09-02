@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.const import Platform
+from homeassistant.const import CONF_PASSWORD, Platform
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import CONF_COOKIES, DOMAIN
 from .coordinator import DigiConfigEntry, DigiCoordinator
+from .crypto import DigiCipher, is_encrypted
 from .scheduler import DATA_SCHEDULER, async_get_scheduler
 from .store import DigiSessionStore
 
@@ -17,10 +18,38 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 
+async def _async_migrate_credentials(
+    hass: HomeAssistant, entry: DigiConfigEntry, cipher: DigiCipher
+) -> None:
+    """Bring an entry written by a pre-1.0 version up to the current storage.
+
+    Two things change: the password, which those versions stored and nothing
+    ever read, is dropped outright; and a cookie jar stored in the clear is
+    encrypted, so the user stays signed in without a plaintext session lying
+    around. Rewrites the entry in place; this changes no tunable setting, so it
+    does not trigger a reload via the update listener.
+    """
+    data = dict(entry.data)
+    changed = False
+    if CONF_PASSWORD in data:
+        del data[CONF_PASSWORD]
+        changed = True
+    cookies = data.get(CONF_COOKIES)
+    if cookies and not is_encrypted(cookies):
+        data[CONF_COOKIES] = cipher.encrypt_json(cookies)
+        changed = True
+    if changed:
+        hass.config_entries.async_update_entry(entry, data=data)
+        _LOGGER.debug("Migrated the stored Digi session to encrypted storage")
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: DigiConfigEntry) -> bool:
     """Set up Digi from a config entry."""
+    cipher = await DigiCipher.async_load(hass)
+    await _async_migrate_credentials(hass, entry, cipher)
+
     scheduler = async_get_scheduler(hass)
-    coordinator = DigiCoordinator(hass, entry)
+    coordinator = DigiCoordinator(hass, entry, cipher=cipher)
 
     # Register before the first refresh so the shared lock is in effect even
     # while several accounts are setting up at once.

@@ -32,6 +32,7 @@ from .const import (
     DOMAIN,
     LOGS_WINDOW_DAYS,
 )
+from .crypto import DigiCipher
 from .dates import parse_date
 from .models import AddressSnapshot, DigiData, DigiSnapshot
 from .scheduler import DATA_SCHEDULER
@@ -121,7 +122,14 @@ class DigiCoordinator(DataUpdateCoordinator[DigiSnapshot]):
 
     config_entry: DigiConfigEntry
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        cipher: DigiCipher,
+    ) -> None:
+        # The session cookies only ever exist encrypted in the entry.
+        self._cipher = cipher
         interval_hours = int(
             config_entry.data.get(
                 CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS
@@ -165,22 +173,43 @@ class DigiCoordinator(DataUpdateCoordinator[DigiSnapshot]):
         )
         return current != self._settings_signature
 
+    def _stored_cookies(self) -> list[dict[str, Any]]:
+        """The session cookie jar from the entry, decrypted.
+
+        A bare list is the pre-encryption form (already migrated on setup, but
+        tolerated here so a partially upgraded entry still loads). A jar that
+        cannot be decrypted — a backup restored without its key file — is
+        treated like a missing session, so the user is asked to sign in again
+        rather than the entry failing forever.
+        """
+        raw = self.config_entry.data.get(CONF_COOKIES) or []
+        try:
+            return self._cipher.decrypt_json(raw) or []
+        except ValueError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
+
     def _ensure_api(self) -> DigiApiClient:
         if self.api is None:
             self.api = DigiApiClient(async_get_clientsession(self.hass))
-            cookies = self.config_entry.data.get(CONF_COOKIES) or []
-            self.api.import_cookies(cookies)
+            self.api.import_cookies(self._stored_cookies())
         return self.api
 
     def _persist_cookies(self) -> None:
-        """Save rotated session cookies back to the entry (no reload)."""
+        """Save rotated session cookies back to the entry (no reload).
+
+        Compared in the clear: Fernet output is randomised, so ciphertexts of
+        the same jar never match and would trigger a write on every poll.
+        """
         if self.api is None:
             return
         cookies = self.api.export_cookies()
-        if cookies and cookies != (self.config_entry.data.get(CONF_COOKIES) or []):
+        if cookies and cookies != self._stored_cookies():
             self.hass.config_entries.async_update_entry(
                 self.config_entry,
-                data={**self.config_entry.data, CONF_COOKIES: cookies},
+                data={
+                    **self.config_entry.data,
+                    CONF_COOKIES: self._cipher.encrypt_json(cookies),
+                },
             )
 
     async def async_shutdown(self) -> None:
@@ -202,7 +231,7 @@ class DigiCoordinator(DataUpdateCoordinator[DigiSnapshot]):
     async def _fetch_and_build(self) -> DigiSnapshot:
         api = self._ensure_api()
 
-        cookies = self.config_entry.data.get(CONF_COOKIES) or []
+        cookies = self._stored_cookies()
         if not cookies:
             raise ConfigEntryAuthFailed("Digi session is missing — re-authenticate.")
 

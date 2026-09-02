@@ -9,6 +9,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.config_entries import (
     SOURCE_RECONFIGURE,
+    ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
@@ -56,6 +57,7 @@ from .const import (
     MIN_HISTORY_LIMIT,
     MIN_UPDATE_INTERVAL_HOURS,
 )
+from .crypto import DigiCipher
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -365,9 +367,11 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
 
     # ── Finalize ────────────────────────────────────────────────────────────
     def _build_entry_data(self) -> dict[str, Any]:
+        # The password is used for the login above and then discarded: nothing
+        # replays it later (Digi accounts need a 2FA code), so storing it would
+        # be liability without function. Only the session cookies persist.
         return {
             CONF_USERNAME: self._pending[CONF_USERNAME],
-            CONF_PASSWORD: self._pending[CONF_PASSWORD],
             CONF_UPDATE_INTERVAL: self._pending[CONF_UPDATE_INTERVAL],
             CONF_HISTORY_LIMIT: self._pending[CONF_HISTORY_LIMIT],
             CONF_CLIENT_CODE: self._pending.get(CONF_CLIENT_CODE),
@@ -378,6 +382,19 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
             CONF_COOKIES: self._client.export_cookies(),
         }
+
+    @staticmethod
+    def _merged_entry_data(
+        entry: ConfigEntry, data: dict[str, Any]
+    ) -> dict[str, Any]:
+        """New credentials over the existing entry, minus anything retired.
+
+        Merging alone would carry a password stored by a pre-1.0 version
+        forward forever, since the new data no longer contains that key.
+        """
+        merged = {**entry.data, **data}
+        merged.pop(CONF_PASSWORD, None)
+        return merged
 
     async def _async_finish(self) -> ConfigFlowResult:
         # One entry per Digi login; all of its addresses appear as devices.
@@ -400,6 +417,11 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
 
         data = self._build_entry_data()
 
+        # The session cookies alone are a working login, so they are only ever
+        # persisted encrypted (see crypto.py).
+        cipher = await DigiCipher.async_load(self.hass)
+        data[CONF_COOKIES] = cipher.encrypt_json(data[CONF_COOKIES])
+
         # Re-auth and reconfigure both update the existing entry in place rather
         # than creating one, so history and entity ids survive.
         if self.source == SOURCE_RECONFIGURE:
@@ -409,7 +431,7 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
             # entity at someone else's data.
             self._abort_if_unique_id_mismatch(reason="reconfigure_account_mismatch")
             return self.async_update_reload_and_abort(
-                entry, data={**entry.data, **data}
+                entry, data=self._merged_entry_data(entry, data)
             )
 
         if self._reauth_entry_data is not None:
@@ -418,7 +440,7 @@ class DigiConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(unique_id)
                 self._abort_if_unique_id_mismatch(reason="reauth_account_mismatch")
                 return self.async_update_reload_and_abort(
-                    entry, data={**entry.data, **data}
+                    entry, data=self._merged_entry_data(entry, data)
                 )
 
         await self.async_set_unique_id(unique_id)
