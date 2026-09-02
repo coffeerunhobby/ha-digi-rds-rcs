@@ -195,7 +195,14 @@ class DigiApiClient:
 
         methods = _parse_2fa_context(html)
         if not methods:
-            _LOGGER.debug("Digi 2FA HTML first 1500 chars: %s", html[:1500])
+            # Log the shape of the page, never its body: it carries the masked
+            # phone/e-mail targets and CSRF tokens, and debug logs get pasted
+            # into issue reports.
+            _LOGGER.debug(
+                "Digi 2FA page could not be parsed (length %d, has form: %s)",
+                len(html),
+                "<form" in html,
+            )
             raise DigiTwoFactorRequired("Could not parse 2FA page")
 
         return TwoFactorContext(methods=methods, html=html)
@@ -262,7 +269,12 @@ class DigiApiClient:
             raise DigiTwoFactorError(f"Failed to send code: HTTP {resp.status}")
 
         if text and "error" in text.lower():
-            _LOGGER.debug("Digi send 2FA response: %s", text[:400])
+            # The body can echo the delivery target; log only that it errored.
+            _LOGGER.debug(
+                "Digi send-2FA response mentions an error (HTTP %s, %d chars)",
+                resp.status,
+                len(text),
+            )
 
     async def validate_2fa_code(
         self, context: TwoFactorContext, method: str, code: str
