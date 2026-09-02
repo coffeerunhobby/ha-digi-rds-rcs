@@ -1,8 +1,12 @@
 {
   "domain": "digi",
   "name": "Digi (RCS & RDS)",
-  "after_dependencies": ["recorder"],
-  "codeowners": ["@coffeerunhobby"],
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@coffeerunhobby"
+  ],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/coffeerunhobby/ha-digi-rds-rcs",
@@ -10,5 +14,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/coffeerunhobby/ha-digi-rds-rcs/issues",
   "requirements": [],
-  "version": "0.5.0"
+  "version": "1.0.0"
 }

@@ -222,10 +222,19 @@ entities:
 
 ## Confidențialitate
 
-Datele de autentificare și sesiunile sunt stocate exclusiv local în Home
-Assistant. Informațiile sensibile (e-mail, parolă, cookie-uri, adrese,
-identificatori de cont și de factură) sunt eliminate automat din datele de
-diagnosticare.
+Totul este stocat exclusiv local în Home Assistant. **Parola nu este stocată
+deloc** — este folosită o singură dată pentru autentificare și apoi eliminată
+(integrarea oricum nu se poate reautentifica singură, contul Digi cerând un cod
+2FA). Cookie-urile de sesiune sunt **criptate** (Fernet, prin pachetul
+`cryptography` inclus deja în Home Assistant), cu cheia păstrată într-un fișier
+separat de datele integrării — astfel, un singur fișier scurs (de ex.
+`core.config_entries` lipit într-un forum) nu oferă o sesiune reutilizabilă.
+Nu înlocuiește criptarea discului: cu acces complet la sistemul de fișiere,
+ambele fișiere sunt lizibile.
+
+Informațiile sensibile (e-mail, parolă, cookie-uri, adrese, identificatori de
+cont și de factură) sunt eliminate automat din datele de diagnosticare, iar
+jurnalele de depanare nu conțin niciodată paginile de autentificare.
 
 ---
 

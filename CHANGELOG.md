@@ -3,6 +3,59 @@
 All notable changes to this integration are documented here. Versions follow
 the integration's `manifest.json` and the GitHub release tags.
 
+## v1.0.0 — The password is no longer stored; the session is encrypted
+
+The 1.0 marks the integration as complete for its purpose: it now holds the
+least it can and protects what it must, diagnostics and logs are clean, and the
+CI supply chain is pinned. No entity, id or sensor behaviour changes.
+
+**Your Digi password is no longer stored at all.** Every earlier version kept
+it in clear text in Home Assistant's `core.config_entries` — and never read it
+back: the integration cannot sign in unattended anyway, because Digi accounts
+require a two-factor code. A credential that is stored but never used is pure
+liability, so it is gone. The password is used once, to log in during setup,
+re-authentication or Reconfigure, and then discarded. On the first start after
+updating, existing entries drop the stored copy automatically.
+
+**The session cookies are now encrypted at rest.** They are the one thing the
+integration must keep, and the sensitive one — they *are* a logged-in Digi
+session, usable without the password or a code. They are stored as Fernet
+ciphertext (AES-128-CBC + HMAC-SHA256, via the `cryptography` package Home
+Assistant already requires) with the key in a separate file
+(`.storage/digi_key`), so leaking `core.config_entries` alone — a pasted file,
+a single-file backup, a diagnostics dump — no longer hands out a working login.
+There is deliberately **no plaintext code path**: a session that cannot be
+encrypted is not stored.
+
+- Existing sessions are migrated **automatically** on the first start after
+  updating; nobody is signed out.
+- Rotated cookies are re-encrypted on every poll; the comparison is done in the
+  clear, so the randomised ciphertext does not cause a write each time.
+- A backup restored *without* its key file cannot decrypt the session; the
+  integration then asks you to sign in again instead of failing permanently.
+- This is not a substitute for disk encryption: with full filesystem access
+  both files are readable. It closes the far more common partial-exposure case.
+
+**Debug logs no longer contain the two-factor page.** When the 2FA page could
+not be parsed, or a code failed to send, the raw response body was logged at
+debug level — and "enable debug logging and paste the log" is the first thing
+any issue thread asks for. Those pages carry the masked phone/e-mail targets and
+CSRF tokens. Only the shape of the page (length, whether a form was found) is
+logged now.
+
+**CI supply chain pinned.** Every GitHub Action the workflows run is now pinned
+to a commit SHA rather than a floating tag or branch, so a compromised upstream
+cannot execute arbitrary code in this repository's CI. Dependabot keeps the
+pins current.
+
+**Verification.** Migration is covered by a test that boots a pre-1.0 entry
+(stored password, plaintext cookie jar) inside a real Home Assistant and asserts
+the password is gone and the jar is ciphertext that still round-trips exactly.
+Re-authentication and Reconfigure are tested to leave no password behind on an
+entry that had one. 106 tests.
+
+**Full diff:** https://github.com/coffeerunhobby/ha-digi-rds-rcs/compare/v0.5.0...v1.0.0
+
 ## v0.5.0 — Security fix + internal restructuring
 
 > 🔒 **Security — update from v0.4.0.** Downloading diagnostics in v0.4.0
