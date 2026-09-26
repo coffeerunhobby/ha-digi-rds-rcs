@@ -3,6 +3,24 @@
 All notable changes to this integration are documented here. Versions follow
 the integration's `manifest.json` and the GitHub release tags.
 
+## v1.0.1 — Keep traffic statistics working on Home Assistant 2026.11+
+
+**Fix — statistics metadata now declares its unit class.** Home Assistant
+2025.11 added a `unit_class` field to statistics metadata and has been deriving
+it from the unit on our behalf, with a deprecation warning; from **2026.11** it
+stops doing so, and the FiberLink download/upload import into long-term
+statistics would fail. The metadata now states `information` (the class for
+GiB) explicitly.
+
+The field is only sent where the running Home Assistant declares it: releases
+before 2025.11 reject unknown metadata keys, so sending it unconditionally would
+have broken statistics on every install at the 2024.12 floor. A test covers
+both sides, and CI runs it on each.
+
+No other changes.
+
+**Full diff:** https://github.com/coffeerunhobby/ha-digi-rds-rcs/compare/v1.0.0...v1.0.1
+
 ## v1.0.0 — The password is no longer stored; the session is encrypted
 
 The 1.0 marks the integration as complete for its purpose: it now holds the
