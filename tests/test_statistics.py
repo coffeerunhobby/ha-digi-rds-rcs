@@ -78,3 +78,23 @@ async def test_traffic_statistics_imported(recorder_mock, hass):
     assert stats[upload_id][-1]["sum"] == pytest.approx(0.0, abs=0.01)
     # Daily-spread produced three daily points.
     assert len(stats[download_id]) == 3
+
+
+def test_metadata_declares_the_unit_class_where_home_assistant_knows_it():
+    """``unit_class`` must be sent on new Home Assistant and withheld on old.
+
+    From 2026.11 Home Assistant no longer derives it from the unit, so the
+    Energy/traffic import would stop. Releases before 2025.11 build the DB row
+    with ``StatisticsMeta(**meta)`` and reject unknown keys, so sending it
+    there breaks statistics on every install at our 2024.12 floor. Both CI
+    jobs run this, one on each side of that line.
+    """
+    from homeassistant.components.recorder.models import StatisticMetaData
+
+    from custom_components.digi.statistics import _statistic_metadata
+
+    metadata = _statistic_metadata("digi:connection_download_x", "Download")
+    if "unit_class" in StatisticMetaData.__annotations__:
+        assert metadata["unit_class"] == "information"
+    else:
+        assert "unit_class" not in metadata

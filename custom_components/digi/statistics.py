@@ -60,6 +60,13 @@ def _statistic_metadata(stat_id: str, name: str) -> StatisticMetaData:
         metadata["mean_type"] = StatisticMeanType.NONE
     except ImportError:
         metadata["has_mean"] = False
+
+    # Home Assistant 2025.11 added ``unit_class`` and, from 2026.11, no longer
+    # derives it from the unit for us. Older releases build the DB row with
+    # ``StatisticsMeta(**meta)`` and reject unknown keys, so only send it where
+    # the metadata type declares it. GiB is an "information" unit.
+    if "unit_class" in StatisticMetaData.__annotations__:
+        metadata["unit_class"] = "information"
     return metadata
 
 
