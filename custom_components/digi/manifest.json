@@ -4,6 +4,7 @@
   "after_dependencies": [
     "recorder"
   ],
+  "categories": ["computers_network"],
   "codeowners": [
     "@coffeerunhobby"
   ],
